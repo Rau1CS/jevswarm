@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jev Rescue Swarm</title>
+    <meta name="description" content="One AI coordinator. Dozens of autonomous drones. One evolving disaster." />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/ui/styles.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="labels"></div>
+
+    <div id="hud" class="hidden">
+      <header id="topbar">
+        <div class="brand">
+          <span class="mark"></span>
+          <div>
+            <div class="brand-name">JEV RESCUE SWARM</div>
+            <div class="brand-sub"><span id="mission-mode">SIMULATION</span> · T+<span id="clock">00:00</span> · <span id="tscale">1×</span></div>
+          </div>
+        </div>
+        <div id="views" class="seg">
+          <button data-view="WORLD" class="on">WORLD VIEW</button>
+          <button data-view="JEV">JEV VIEW</button>
+          <button data-view="THERMAL">THERMAL VIEW</button>
+        </div>
+        <div class="sys">
+          <span id="coord-badge" class="badge">SIMULATION COORDINATOR</span>
+          <label class="sel">DRONES
+            <select id="drone-count"><option>10</option><option selected>24</option><option>50</option><option>100</option></select>
+          </label>
+          <label class="sel">TIME
+            <select id="time-scale"><option value="1">1×</option><option value="2" selected>2×</option><option value="4">4×</option></select>
+          </label>
+          <button id="btn-techmode" class="tog" title="Technical drone cards">TECH MODE</button>
+          <button id="btn-techpage" class="tog">TECH / REAL-WORLD</button>
+          <button id="btn-quality" class="tog" title="Render quality">HIGH</button>
+          <button id="btn-mute" class="tog" title="Sound">SOUND ON</button>
+          <button id="btn-end" class="tog">END</button>
+        </div>
+      </header>
+
+      <div id="wind">
+        <svg viewBox="0 0 64 64" aria-hidden="true">
+          <circle cx="32" cy="32" r="27" class="ring" />
+          <text x="32" y="11" class="cardinal">N</text>
+          <g id="wind-arrow"><path d="M32 12 L37 30 L32 27 L27 30 Z" class="arrow" /><line x1="32" y1="27" x2="32" y2="50" class="shaft" /></g>
+        </svg>
+        <div class="wind-txt"><div class="k">WIND</div><div id="wind-val" class="v">210° · 6.0 m/s</div></div>
+      </div>
+
+      <aside id="jev">
+        <div class="jev-head">
+          <div class="jev-title">JEV <span>//</span> SWARM INTELLIGENCE</div>
+          <div id="jev-pulse" class="pulse"></div>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="k">STATUS</div><div id="st-status" class="v ok">ACTIVE</div></div>
+          <div class="stat"><div class="k">DRONES</div><div id="st-drones" class="v">24 / 24</div></div>
+          <div class="stat"><div class="k">CIVILIANS</div><div id="st-civ" class="v">0 confirmed<br /><span class="sub">0 possible</span></div></div>
+          <div class="stat"><div class="k">FIRE FRONT</div><div id="st-fire" class="v">0.0 km</div></div>
+          <div class="stat wide"><div class="k">CURRENT PRIORITY</div><div id="st-priority" class="v pri">—</div></div>
+          <div class="stat wide"><div class="k">COORDINATOR</div><div id="st-coord" class="v small">—</div></div>
+        </div>
+        <div class="stream-head"><span>DECISION STREAM</span><span id="stream-count" class="muted">0</span></div>
+        <div id="stream"></div>
+      </aside>
+
+      <section id="drone-card" class="hidden"></section>
+
+      <nav id="cams">
+        <div class="cams-title">CAMERA</div>
+        <button data-cam="OVERVIEW">OVERVIEW</button>
+        <button data-cam="FIRE">FIRE FRONT</button>
+        <button data-cam="SWARM">SWARM</button>
+        <button data-cam="RESCUE">RESCUE</button>
+        <button data-cam="SELECTED">SELECTED DRONE</button>
+        <button data-cam="BASE">COMMAND BASE</button>
+      </nav>
+
+      <form id="command" autocomplete="off">
+        <span class="cmd-k">COMMANDER</span>
+        <input id="cmd-input" placeholder='e.g. "Search the northern forest" · "Keep five drones in reserve"' maxlength="140" />
+        <button type="submit">SEND</button>
+        <div id="cmd-suggest">
+          <button type="button">Prioritize the village</button>
+          <button type="button">Search the northern forest</button>
+          <button type="button">Protect the evacuation road</button>
+          <button type="button">Keep five drones in reserve</button>
+          <button type="button">Focus suppression near civilians</button>
+          <button type="button">Resume autonomous operation</button>
+        </div>
+      </form>
+
+      <div id="alerts"></div>
+      <div id="callout" class="hidden"></div>
+      <div id="demo-caption" class="hidden"></div>
+    </div>
+
+    <div id="cine-title" class="hidden"><div class="ct-main">JEV RESCUE SWARM</div><div class="ct-sub">INITIALIZING</div></div>
+
+    <div id="title-screen">
+      <div class="ts-inner">
+        <div class="ts-kicker">CIVILIAN EMERGENCY-RESPONSE TECHNOLOGY DEMONSTRATOR</div>
+        <h1>JEV RESCUE SWARM</h1>
+        <p class="ts-tag">One AI coordinator. Dozens of autonomous drones. One evolving disaster.</p>
+        <div class="ts-actions">
+          <button id="btn-demo" class="primary">RUN CINEMATIC DEMO</button>
+          <button id="btn-free">START SIMULATION</button>
+          <button id="btn-tech2" class="ghost">TECH / REAL-WORLD DESIGN</button>
+        </div>
+        <div id="ts-status" class="ts-status">Checking Jev connection…</div>
+      </div>
+      <div class="ts-foot">Simulation. Values marked SIM are abstractions — see TECH / REAL-WORLD DESIGN.</div>
+    </div>
+
+    <div id="results" class="hidden"></div>
+    <div id="tech-page" class="hidden"></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+{
+  "name": "jev-rescue-swarm",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "JEV RESCUE SWARM - browser 3D wildfire drone-swarm simulation coordinated by TypeSafe Jev",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "@types/three": "^0.186.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1",
+    "vitest": "^5.0.1"
+  }
+}
