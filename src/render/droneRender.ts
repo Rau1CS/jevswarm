@@ -1,70 +1,30 @@
 /**
- * Instanced quadcopter rendering (X500-class proportions, scaled by DRONE_VISUAL_SCALE).
- * Parts: body (role colour), carbon frame + motors + skids, spinning props, blur discs,
- * role payload modules, nav lights, and constant-size map markers.
+ * Instanced fleet rendering with Blender-authored, PBR-textured airframes
+ * (see tools/blender/, src/render/drone/). Scaled by DRONE_VISUAL_SCALE.
+ *
+ * - Every (kit, material, LOD) is one InstancedMesh; meshes of a kit share one instance
+ *   matrix / colour buffer and draw only the instances written this frame (`count`).
+ * - LOD0 (full detail) near the camera, LOD1 beyond LOD_NEAR; props hidden beyond PROP_FAR.
+ * - Role identity: canopy paint + anodised clamps take ROLE_COLOR via instance colour,
+ *   plus role payload modules and decals.
+ * - SUPPRESSION-role aircraft can fly the LIGHT quad (X500-class + 1.5 L module) or the
+ *   HEAVY coaxial X8 (≈1.9 m, 20 L tank): `setSuppressionAirframe('LIGHT' | 'HEAVY')`.
  */
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { DRONE_VISUAL_SCALE } from '../config';
-import type { Drone, Role } from '../sim/drone';
-import { applyThermal } from './thermal';
+import type { Drone } from '../sim/drone';
+import { ROLE_COLOR, ROLE_MARK } from './drone/palette';
+import { AIRFRAMES, currentDroneModels, loadDroneModels, payloadKit, type Airframe, type AirframeSpec, type DroneModels, type GeoByMat } from './drone/models';
+import { createDroneMaterials, TINTED, type DroneMaterials } from './drone/materials';
+import { fieldEnvironment, rotorBlurTexture } from './drone/textures';
 
-export const ROLE_COLOR: Record<Role, number> = {
-  SCOUT: 0xd4d8db,
-  SUPPRESSION: 0xc4452c,
-  LOGISTICS: 0xdaa52a,
-  RELAY: 0x6f7c88,
-};
-export const ROLE_MARK: Record<Role, number> = {
-  SCOUT: 0xe8eef2,
-  SUPPRESSION: 0xff7048,
-  LOGISTICS: 0xffc240,
-  RELAY: 0x8fb5d8,
-};
-const ROLES: Role[] = ['SCOUT', 'SUPPRESSION', 'LOGISTICS', 'RELAY'];
-const MOTORS: [number, number][] = [[0.177, 0.177], [-0.177, 0.177], [-0.177, -0.177], [0.177, -0.177]];
+export { ROLE_COLOR, ROLE_MARK };
+export { AIRFRAMES, type Airframe, type AirframeSpec };
+export { buildDroneAssembly } from './drone/assembly';
 
-export function buildDroneParts() {
-  const body = mergeGeometries([
-    new THREE.BoxGeometry(0.2, 0.07, 0.28).translate(0, 0, 0),
-    new THREE.BoxGeometry(0.14, 0.04, 0.18).translate(0, 0.05, -0.02),
-  ])!;
-  const arm = (a: number) => new THREE.BoxGeometry(0.5, 0.022, 0.026).rotateY(a);
-  const parts: THREE.BufferGeometry[] = [arm(Math.PI / 4), arm(-Math.PI / 4)];
-  for (const [x, z] of MOTORS) parts.push(new THREE.CylinderGeometry(0.028, 0.03, 0.04, 10).translate(x, 0.02, z));
-  for (const s of [-1, 1]) {
-    parts.push(new THREE.BoxGeometry(0.012, 0.012, 0.3).translate(s * 0.11, -0.16, 0));
-    parts.push(new THREE.BoxGeometry(0.01, 0.13, 0.01).rotateZ(s * 0.3).translate(s * 0.085, -0.095, 0.08));
-    parts.push(new THREE.BoxGeometry(0.01, 0.13, 0.01).rotateZ(s * 0.3).translate(s * 0.085, -0.095, -0.08));
-  }
-  parts.push(new THREE.CylinderGeometry(0.004, 0.004, 0.08, 4).translate(0, 0.1, -0.08));
-  parts.push(new THREE.CylinderGeometry(0.03, 0.03, 0.012, 12).translate(0, 0.145, -0.08));
-  const frame = mergeGeometries(parts)!;
-  const prop = new THREE.BoxGeometry(0.254, 0.004, 0.022);
-  const disc = new THREE.CircleGeometry(0.13, 20).rotateX(-Math.PI / 2);
-  const payload: Record<Role, THREE.BufferGeometry> = {
-    SCOUT: mergeGeometries([
-      new THREE.SphereGeometry(0.045, 12, 10).translate(0, -0.075, 0.1),
-      new THREE.CylinderGeometry(0.018, 0.018, 0.03, 10).rotateX(Math.PI / 2).translate(0, -0.075, 0.145),
-      new THREE.BoxGeometry(0.02, 0.04, 0.02).translate(0, -0.04, 0.1),
-    ])!,
-    SUPPRESSION: mergeGeometries([
-      new THREE.CylinderGeometry(0.085, 0.085, 0.2, 14).rotateX(Math.PI / 2).translate(0, -0.12, 0),
-      new THREE.CylinderGeometry(0.012, 0.02, 0.08, 8).translate(0, -0.23, 0.02),
-    ])!,
-    LOGISTICS: mergeGeometries([
-      new THREE.BoxGeometry(0.17, 0.1, 0.17).translate(0, -0.12, 0),
-      new THREE.BoxGeometry(0.19, 0.012, 0.19).translate(0, -0.07, 0),
-    ])!,
-    RELAY: mergeGeometries([
-      new THREE.CylinderGeometry(0.006, 0.008, 0.34, 6).translate(0, 0.22, 0.03),
-      new THREE.CylinderGeometry(0.004, 0.004, 0.22, 4).rotateZ(Math.PI / 2).translate(0, 0.3, 0.03),
-      new THREE.SphereGeometry(0.02, 8, 6).translate(0, 0.4, 0.03),
-      new THREE.BoxGeometry(0.1, 0.05, 0.08).translate(0, -0.06, 0),
-    ])!,
-  };
-  return { body, frame, prop, disc, payload, motors: MOTORS };
-}
+/** Camera distance (world m) under which the full-detail LOD is drawn, per airframe. */
+const LOD_NEAR: Record<Airframe, number> = { LIGHT: 170, HEAVY: 420 };
+const PROP_FAR = 900;
 
 const MARK_VS = /* glsl */ `
   attribute vec3 aColor; attribute float aSize; varying vec3 vColor; varying float vFade;
@@ -88,21 +48,71 @@ const MARK_FS = /* glsl */ `
     gl_FragColor = vec4(vColor * (0.9 + core * 0.6), a);
   }`;
 
+/** All material meshes of one kit at one LOD, sharing a per-frame instance buffer. */
+class KitBatch {
+  readonly meshes: THREE.InstancedMesh[] = [];
+  private mtx: THREE.InstancedBufferAttribute;
+  private col: THREE.InstancedBufferAttribute | null = null;
+  n = 0;
+
+  constructor(geos: GeoByMat, mats: Record<string, THREE.Material>, readonly cap: number, parent: THREE.Object3D, shadow: boolean) {
+    this.mtx = new THREE.InstancedBufferAttribute(new Float32Array(cap * 16), 16).setUsage(THREE.DynamicDrawUsage);
+    for (const [name, geo] of geos) {
+      const im = new THREE.InstancedMesh(geo, mats[name] ?? mats.plastic_dark, cap);
+      im.instanceMatrix = this.mtx;
+      if (TINTED.has(name)) {
+        this.col ??= new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3).setUsage(THREE.DynamicDrawUsage);
+        im.instanceColor = this.col;
+      }
+      im.frustumCulled = false;
+      im.castShadow = shadow;
+      im.count = 0;
+      im.visible = false;
+      parent.add(im);
+      this.meshes.push(im);
+    }
+  }
+
+  push(m: THREE.Matrix4, c?: THREE.Color): void {
+    if (this.n >= this.cap) return;
+    m.toArray(this.mtx.array as Float32Array, this.n * 16);
+    if (this.col && c) c.toArray(this.col.array as Float32Array, this.n * 3);
+    this.n++;
+  }
+
+  commit(): void {
+    for (const im of this.meshes) {
+      im.count = this.n;
+      im.visible = this.n > 0;
+    }
+    if (this.n === 0) return;
+    this.mtx.clearUpdateRanges();
+    this.mtx.addUpdateRange(0, this.n * 16);
+    this.mtx.needsUpdate = true;
+    if (this.col) {
+      this.col.clearUpdateRanges();
+      this.col.addUpdateRange(0, this.n * 3);
+      this.col.needsUpdate = true;
+    }
+  }
+}
+
 export class DroneRender {
   readonly group = new THREE.Group();
   private n = 0;
-  private body!: THREE.InstancedMesh;
-  private frame!: THREE.InstancedMesh;
-  private props!: THREE.InstancedMesh;
-  private discs!: THREE.InstancedMesh;
-  private payload = {} as Record<Role, THREE.InstancedMesh>;
+  private fleet = new THREE.Group();
+  private batches = new Map<string, KitBatch>();
+  private discs = {} as Record<Airframe, KitBatch>;
+  private models: DroneModels = currentDroneModels();
+  private mats: DroneMaterials;
+  private suppression: Airframe = 'LIGHT';
   private marks!: THREE.Points;
   private lights!: THREE.Points;
   private dummy = new THREE.Object3D();
   private m = new THREE.Matrix4();
-  private local = new THREE.Matrix4();
-  private rot = new THREE.Matrix4();
-  private zero = new THREE.Matrix4().makeScale(0, 0, 0);
+  private pm = new THREE.Matrix4();
+  private tmp = new THREE.Matrix4();
+  private flip = new THREE.Matrix4().makeRotationX(Math.PI);
   readonly selRing: THREE.Mesh;
   readonly selLine: THREE.Line;
   selected: Drone | null = null;
@@ -113,28 +123,49 @@ export class DroneRender {
     const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, -1, 0)]);
     this.selLine = new THREE.Line(lg, new THREE.LineDashedMaterial({ color: 0xbfe8ff, dashSize: 3, gapSize: 3, transparent: true, opacity: 0.6 }));
     this.selRing.visible = this.selLine.visible = false;
-    this.group.add(this.selRing, this.selLine);
+    this.group.add(this.selRing, this.selLine, this.fleet);
+    this.mats = createDroneMaterials({ envMap: fieldEnvironment(), envMapIntensity: 0.85 });
+    void loadDroneModels().then((m) => {
+      this.models = m;
+      this.n = -1; // rebuild instanced meshes on next update
+    });
+  }
+
+  /**
+   * Choose the airframe flown by SUPPRESSION-role drones: 'LIGHT' = X500-class quad with a
+   * 1.5 L module; 'HEAVY' = coaxial X8 heavy-lift (≈1.9 m wheelbase, 30 in props, 20 L tank).
+   * Takes effect on the next update(); other roles always fly the LIGHT airframe.
+   */
+  setSuppressionAirframe(a: Airframe): void {
+    this.suppression = a;
+  }
+
+  get suppressionAirframe(): Airframe {
+    return this.suppression;
+  }
+
+  /** Airframe used to draw a given drone. */
+  airframeFor(d: Drone): Airframe {
+    return d.role === 'SUPPRESSION' ? this.suppression : 'LIGHT';
   }
 
   build(count: number): void {
-    for (const c of [...this.group.children]) if (c !== this.selRing && c !== this.selLine) this.group.remove(c);
+    for (const c of [...this.fleet.children]) this.fleet.remove(c);
+    for (const c of [...this.group.children]) if (c !== this.selRing && c !== this.selLine && c !== this.fleet) this.group.remove(c);
+    this.batches.clear();
     this.n = count;
-    const g = buildDroneParts();
-    const mk = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number) => {
-      const im = new THREE.InstancedMesh(geo, mat, n);
-      im.frustumCulled = false;
-      im.castShadow = true;
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-      this.group.add(im);
-      return im;
-    };
-    this.body = mk(g.body, applyThermal(new THREE.MeshStandardMaterial({ roughness: 0.45, metalness: 0.1 }), 0.22), count);
-    this.frame = mk(g.frame, applyThermal(new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.5, metalness: 0.3 }), 0.3), count);
-    this.props = mk(g.prop, applyThermal(new THREE.MeshStandardMaterial({ color: 0x111214, roughness: 0.6 }), 0.12), count * 4);
-    this.discs = mk(g.disc, new THREE.MeshBasicMaterial({ color: 0x202428, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide }), count * 4);
-    this.discs.castShadow = false;
-    const pc: Record<Role, number> = { SCOUT: 0x24272b, SUPPRESSION: 0xa8321f, LOGISTICS: 0x2b2a26, RELAY: 0x9aa6b0 };
-    for (const r of ROLES) this.payload[r] = mk(g.payload[r], applyThermal(new THREE.MeshStandardMaterial({ color: pc[r], roughness: 0.5, metalness: 0.2 }), 0.18), count);
+    const mats = this.mats as unknown as Record<string, THREE.Material>;
+    const kits = ['LIGHT', 'HEAVY', 'PAY_SCOUT', 'PAY_SUPPRESSION', 'PAY_LOGISTICS', 'PAY_RELAY'];
+    const props = ['PROP_L_CCW', 'PROP_L_CW', 'PROP_H_CCW', 'PROP_H_CW'];
+    for (const lod of [0, 1]) {
+      for (const k of kits) this.batches.set(`${k}|${lod}`, new KitBatch(this.models.kit(k, lod), mats, count, this.fleet, true));
+      for (const k of props) this.batches.set(`${k}|${lod}`, new KitBatch(this.models.kit(k, lod), mats, count * 4, this.fleet, lod === 0));
+    }
+    const discMat = new THREE.MeshBasicMaterial({ map: rotorBlurTexture(), color: 0xc8ccd0, transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide });
+    for (const af of ['LIGHT', 'HEAVY'] as Airframe[]) {
+      const disc = new THREE.CircleGeometry(AIRFRAMES[af].propDiameter / 2, 40).rotateX(-Math.PI / 2);
+      this.discs[af] = new KitBatch(new Map([['disc', disc]]), { disc: discMat, plastic_dark: discMat }, count * 8, this.fleet, false);
+    }
 
     const pts = (n: number, near: number, far: number, shape: number, blending: THREE.Blending) => {
       const geo = new THREE.BufferGeometry();
@@ -158,6 +189,7 @@ export class DroneRender {
     if (drones.length !== this.n) this.build(drones.length);
     const S = DRONE_VISUAL_SCALE;
     const col = new THREE.Color();
+    const tint = new THREE.Color();
     const mPos = this.marks.geometry.attributes.position as THREE.BufferAttribute;
     const mCol = this.marks.geometry.attributes.aColor as THREE.BufferAttribute;
     const mSize = this.marks.geometry.attributes.aSize as THREE.BufferAttribute;
@@ -166,45 +198,56 @@ export class DroneRender {
     const lSize = this.lights.geometry.attributes.aSize as THREE.BufferAttribute;
     const camPos = cam.position;
     const v = new THREE.Vector3();
+    const dpr = window.devicePixelRatio || 1;
+    for (const b of this.batches.values()) b.n = 0;
+    this.discs.LIGHT.n = this.discs.HEAVY.n = 0;
     drones.forEach((d, i) => {
-      this.dummy.position.set(d.x, d.y, d.z);
+      const spec = AIRFRAMES[this.airframeFor(d)];
+      // Keep the landing gear on the ground at the exaggerated visual scale.
+      const y = Math.max(d.y, d.y - d.agl + spec.footDepth * S);
+      this.dummy.position.set(d.x, y, d.z);
       this.dummy.rotation.set(d.pitch, d.yaw, d.roll, 'YXZ');
       this.dummy.scale.setScalar(S);
       this.dummy.updateMatrix();
       this.m.copy(this.dummy.matrix);
-      this.body.setMatrixAt(i, this.m);
-      this.body.setColorAt(i, col.setHex(ROLE_COLOR[d.role]));
-      this.frame.setMatrixAt(i, this.m);
-      for (const r of ROLES) this.payload[r].setMatrixAt(i, r === d.role ? this.m : this.zero);
-      const far = camPos.distanceTo(this.dummy.position) > 900;
+      const dist = camPos.distanceTo(this.dummy.position);
+      const lod = dist < LOD_NEAR[spec.id] ? 0 : 1;
+      tint.setHex(ROLE_COLOR[d.role]);
+      this.batches.get(`${spec.frameKit}|${lod}`)!.push(this.m, tint);
+      if (spec.id === 'LIGHT') this.batches.get(`${payloadKit(d.role)}|${lod}`)!.push(this.m, tint);
       const spinning = d.status !== 'LANDED' && d.status !== 'CHARGING' && d.status !== 'FAILED';
-      MOTORS.forEach(([mx, mz], k) => {
-        this.local.makeTranslation(mx, 0.045, mz);
-        const ang = spinning ? d.rotor * (k % 2 ? 1 : -1) + k : k * 0.7;
-        this.rot.makeRotationY(ang);
-        const mm = new THREE.Matrix4().multiplyMatrices(this.m, this.local).multiply(this.rot);
-        this.props.setMatrixAt(i * 4 + k, far ? this.zero : mm);
-        this.discs.setMatrixAt(i * 4 + k, spinning && !far ? mm : this.zero);
-      });
+      if (dist < PROP_FAR) {
+        spec.rotors.forEach((r, k) => {
+          const dir = r.ccw ? 1 : -1;
+          const ang = spinning ? d.rotor * spec.spin * dir + k : k * 0.7;
+          this.pm.makeTranslation(r.x, r.y, r.z).premultiply(this.m);
+          if (r.inverted) this.pm.multiply(this.flip);
+          this.pm.multiply(this.tmp.makeRotationY(r.inverted ? -ang : ang));
+          const handedCCW = r.inverted ? !r.ccw : r.ccw;
+          this.batches.get(`${handedCCW ? spec.propKit.ccw : spec.propKit.cw}|${lod}`)!.push(this.pm);
+          if (spinning) this.discs[spec.id].push(this.pm);
+        });
+      }
       // Constant-size marker (visible from overview).
-      mPos.setXYZ(i, d.x, d.y + 4, d.z);
+      mPos.setXYZ(i, d.x, y + (spec.id === 'HEAVY' ? 8 : 4), d.z);
       const lost = d.status === 'LINK_LOST' || d.status === 'FAILED';
       col.setHex(lost ? (Math.sin(t * 8) > 0 ? 0xffb020 : 0x555555) : ROLE_MARK[d.role]);
       if (mode === 'THERMAL') col.setRGB(1, 1, 1);
       mCol.setXYZ(i, col.r, col.g, col.b);
-      mSize.setX(i, (d === this.selected ? 13 : d === this.hovered ? 11 : 7) * (window.devicePixelRatio || 1));
+      mSize.setX(i, (d === this.selected ? 13 : d === this.hovered ? 11 : 7) * dpr);
       // Nav lights: port red, starboard green, white tail strobe.
-      const navs: [number, number, number, number][] = [[0.2, 0.2, 0xff2a20, 3], [-0.2, 0.2, 0x30ff60, 3], [0, -0.16, 0xffffff, Math.sin(t * 9 + i) > 0.85 ? 6 : 0]];
-      navs.forEach(([lx, lz, c, sz], k) => {
-        v.set(lx, 0.02, lz).applyMatrix4(this.m);
+      spec.navLights.forEach(([lx, ly, lz, c, strobe], k) => {
+        v.set(lx, ly, lz).applyMatrix4(this.m);
         lPos.setXYZ(i * 3 + k, v.x, v.y, v.z);
         col.setHex(c);
         lCol.setXYZ(i * 3 + k, col.r, col.g, col.b);
-        lSize.setX(i * 3 + k, spinning ? sz * (window.devicePixelRatio || 1) : 0);
+        const sz = strobe ? (Math.sin(t * 9 + i) > 0.85 ? 6 : 0) : 3;
+        lSize.setX(i * 3 + k, spinning ? sz * dpr : 0);
       });
     });
-    for (const im of [this.body, this.frame, this.props, this.discs, ...Object.values(this.payload)]) im.instanceMatrix.needsUpdate = true;
-    if (this.body.instanceColor) this.body.instanceColor.needsUpdate = true;
+    for (const b of this.batches.values()) b.commit();
+    this.discs.LIGHT.commit();
+    this.discs.HEAVY.commit();
     mPos.needsUpdate = mCol.needsUpdate = mSize.needsUpdate = true;
     lPos.needsUpdate = lCol.needsUpdate = lSize.needsUpdate = true;
     const s = this.selected;
