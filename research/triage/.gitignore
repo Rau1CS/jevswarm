@@ -1,0 +1,6 @@
+data/
+__pycache__/
+results/preds_keywords_*
+results/preds_tfidf_*
+results/eyewitness_keywords.jsonl
+results/eyewitness_tfidf_ref.jsonl
