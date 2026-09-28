@@ -37,7 +37,13 @@ export function objectiveWeight(o: Objective, j: Judgment): number {
   return (j.urgency[o.id] ?? 1) + o.boost + (j.priorityId === o.id ? 0.8 : 0);
 }
 
-export function allocate(objs: Objective[], j: Judgment, drones: Drone[], dir: Directive | null): AllocResult {
+export interface AllocOpts {
+  /** False when suppression uses a dedicated airframe: no payload swaps into or out of SUPPRESSION. */
+  suppressionModular?: boolean;
+}
+
+export function allocate(objs: Objective[], j: Judgment, drones: Drone[], dir: Directive | null, opts: AllocOpts = {}): AllocResult {
+  const modular = opts.suppressionModular ?? true;
   const weights: Record<string, number> = {};
   for (const o of objs) weights[o.id] = objectiveWeight(o, j);
   const pool = drones.filter((d) => d.available && d.status !== 'LINK_LOST' && d.task.kind !== 'RTB');
@@ -74,6 +80,7 @@ export function allocate(objs: Objective[], j: Judgment, drones: Drone[], dir: D
         let swap: Role | undefined;
         if (cap === SWAP) {
           if (w < 2.2) continue; // not worth a base trip
+          if (!modular && (d.role === 'SUPPRESSION' || SWAP_ROLE[slot.task] === 'SUPPRESSION')) continue;
           // Only re-role aircraft doing low-value work (or already home); never strip a loaded suppressor.
           const lowValue = SWAPPABLE_FROM.has(d.task.kind) || baseDist(d) < 300;
           if (!lowValue || (d.role === 'SUPPRESSION' && d.payload > 0.3)) continue;

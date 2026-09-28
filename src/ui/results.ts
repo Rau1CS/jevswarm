@@ -1,6 +1,31 @@
 /** MISSION COMPLETE card + scrubbable replay timeline. */
 import { fmtClock } from '../core/math';
 import type { Simulation } from '../sim/simulation';
+import type { SuppressionSummary } from '../sim/ledger';
+import { money } from './loadoutPanel';
+
+/** Suppression economics card (physically modelled loadouts only). */
+function supCard(s: SuppressionSummary, areaHa: number): string {
+  const row = (k: string, v: string, sub = '') => `<div><div class="k">${k}</div><div class="v">${v}</div>${sub ? `<div class="s">${sub}</div>` : ''}</div>`;
+  const u = s.unit;
+  const pct = (x: number) => `${Math.round(x * 100)}%`;
+  return `<div class="res-card sup">
+    <h2>SUPPRESSION<small>${s.loadout}</small></h2>
+    <div class="res-grid">
+      ${row('AGENT PER SORTIE', `${s.capacityPerSortie.toFixed(1)} ${u}`, `${s.sorties} sorties`)}
+      ${row('RELEASED', `${s.released.toFixed(0)} ${u}`)}
+      ${row('ON TARGET', `${s.onTarget.toFixed(0)} ${u}`, `${pct(s.onTargetPct)} of released`)}
+      ${row('ON FLAMING / TARGET FUEL', `${s.effective.toFixed(0)} ${u}`, `${pct(s.effectivePct)} of released`)}
+      ${row('THROUGHPUT', `${s.throughputPerMin.toFixed(1)} ${u}/min`, 'on target, active period')}
+      ${row('DELIVERY CYCLE', s.meanCycleSec > 0 ? `${s.meanCycleSec.toFixed(0)} s` : '—', `queue ${s.meanQueueSec.toFixed(0)} s avg`)}
+      ${row('FIRST EFFECTIVE DROP', Number.isFinite(s.firstEffectiveSec) ? fmtClock(s.firstEffectiveSec) : '—')}
+      ${row('KNOCKDOWN / REIGNITION', `${s.knockdowns} / ${s.reignitions}`, `${s.extinguished} cells cooled out`)}
+      ${row('AREA BURNED', `${areaHa.toFixed(1)} ha`)}
+      ${row('COST (ASSUMPTION)', money(s.costTotal), `agent ${money(s.costAgent)} · fleet ${money(s.costFleet)} · ${s.flightHours.toFixed(1)} h`)}
+    </div>
+    <div class="res-note">Knockdown = flames out · containment = no active front · extinguishment = heat removed. Values are SIM/ASSUMPTION — compare policies in the SUPPRESSION LAB.</div>
+  </div>`;
+}
 
 export interface ResultsActions {
   scrub(t01: number): void;
@@ -41,6 +66,7 @@ export class Results {
           <button data-a="menu">MENU</button>
         </div>
       </div>
+      ${r.suppression.abstract ? '' : supCard(r.suppression, r.areaHa)}
       <div class="replay">
         <span class="k">3D REPLAY</span>
         <button data-a="play">PLAY</button>

@@ -26,14 +26,24 @@ The key is read only by the local Vite server (`server/jevProxy.ts`), which forw
 `POST /api/jev` to `https://api.typesafe.ai/v1/systemone`. It is never bundled into browser code.
 The top bar shows **JEV CONNECTED** or **SIMULATION COORDINATOR**.
 
-Other scripts: `npm test` (vitest), `npm run typecheck`, `npm run build` + `npm run preview`.
+Other scripts: `npm test` (vitest), `npm run typecheck`, `npm run build` + `npm run preview`,
+`npm run lab` (headless suppression policy comparison — see [docs/SUPPRESSION_MODEL.md](docs/SUPPRESSION_MODEL.md)).
+
+Drone models are generated in Blender (`tools/blender/`, exported to `public/models/jev_drones.glb`):
+
+```bash
+"C:\Program Files\Blender Foundation\Blender 5.0\blender.exe" -b --factory-startup --python tools/blender/build_drones.py
+```
 
 ## What to try
 
 | Control | What it does |
 | --- | --- |
 | **RUN CINEMATIC DEMO** | Curated ~2:40 scenario for screen recording (live simulation, scripted beats). |
-| **START SIMULATION** | Randomised fire origin, wind, civilians, sensor noise, failures. |
+| **START SIMULATION** | Randomised fire origin, wind, civilians, sensor noise, failures — with the chosen suppression loadout. |
+| **SUPPRESSION LOADOUT** (title screen) | Scenario (initial attack / established fire), platform, suppressant, forward refill truck. |
+| **SUPPRESSION LAB** | Same seeds under NO SUPPRESSION / NEAREST-FIRE RULE / COORDINATOR; area burned, delivery, cycles, cost. |
+| **CATALOGUE & SOURCES** | Every platform/agent parameter with its PUBLIC / SIM / CONCEPT / ASSUMPTION tag and source. |
 | WORLD / JEV / THERMAL VIEW (`1` `2` `3`) | Cinematic view · Jev's operational picture · ironbow thermal. |
 | Click a drone | Follow it: CHASE, DRONE POV, THERMAL CAMERA, MAP VIEW. `Esc` releases. |
 | Camera bar | OVERVIEW, FIRE FRONT, SWARM, RESCUE, SELECTED DRONE, COMMAND BASE. |
@@ -46,7 +56,10 @@ Other scripts: `npm test` (vitest), `npm run typecheck`, `npm run build` + `npm 
 ```
 src/
   sim/      fire CA + arrival predictor, drones (flight + tasks), civilians (hidden truth),
-            sensors (uncertain detections), vehicles, events, recorder, simulation hub
+            sensors (uncertain detections), vehicles, events, recorder, simulation hub,
+            loadout/catalogue (platforms + agents), suppression (physical application),
+            logistics (refill stations + queues), ledger (delivery + cost accounting)
+  lab/      headless policy comparison
   jev/      objectives (from observable state) → judge (Jev or fallback) → allocator → tasks
             planner (search patterns, safe corridors, relays), commander command parsing
   render/   Three.js stage + post, terrain/forest/buildings, fire/smoke particles, instanced
@@ -56,7 +69,8 @@ src/
   app/      application shell, scenarios, label builder
 server/     Vite middleware proxy for the TypeSafe API (server-side key)
 tests/      fire calibration, Jev request shape, allocator rules, headless demo storyline
-docs/       SIMULATION.md (abstractions & parameters), JEV_INTEGRATION.md
+docs/       SIMULATION.md (abstractions & parameters), SUPPRESSION_MODEL.md, JEV_INTEGRATION.md
+tools/      blender/ — procedural drone models (light X500-class quad, heavy-lift X8)
 ```
 
 Jev makes **strategic** decisions only (priority and urgency judgments, command parsing),

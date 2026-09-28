@@ -33,7 +33,6 @@ export const DRONE = {
   suppressAGL: 22,
   relayAGL: 120,
   enduranceMin: 18, // SIM: public X500 V2 hover figure (~18 min, no payload); drains faster under load
-  suppressantLitres: 120, // SIM "equivalent" payload per sortie
   batterySwapSec: 18, // SIM hot-swap time at command post
   thermalFovDeg: 50,
 };

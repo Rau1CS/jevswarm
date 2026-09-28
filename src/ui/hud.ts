@@ -1,5 +1,4 @@
 /** DOM HUD: JEV panel, decision stream, alerts, priority callout, wind, drone card. */
-import { DRONE } from '../config';
 import { fmtClock, sectorOf } from '../core/math';
 import { ROLE_SENSORS, type Drone } from '../sim/drone';
 import type { Simulation } from '../sim/simulation';
@@ -32,6 +31,8 @@ export class Hud {
   private card = $('drone-card');
   private count = 0;
   techMode = false;
+  /** Unit of the current suppressant (L or kg). */
+  agentUnit = 'L';
   followMode: FollowMode | null = null;
   private lastCardHtml = '';
   private calloutTimer = 0;
@@ -192,7 +193,8 @@ export class Hud {
     const status = d.status === 'LINK_LOST' ? 'LINK LOST' : d.status === 'FAILED' ? 'LOST' : !d.linkOK && d.airborne ? 'AUTONOMOUS (NO LINK)' : d.status;
     const fm = this.followMode;
     const btn = (m: FollowMode, l: string) => `<button data-fm="${m}" class="${fm === m ? 'on' : ''}">${l}</button>`;
-    const payload = d.role === 'SUPPRESSION' ? `${Math.round(d.payload * DRONE.suppressantLitres)} L` : d.role === 'LOGISTICS' ? (d.payload > 0.5 ? 'SUPPLY KIT' : 'EMPTY') : d.role === 'RELAY' ? 'MESH RADIO' : 'GIMBAL';
+    const cap = d.spec?.capacity ?? 0;
+    const payload = d.role === 'SUPPRESSION' ? `${(d.payload * cap).toFixed(cap < 10 ? 1 : 0)} ${this.agentUnit}` : d.role === 'LOGISTICS' ? (d.payload > 0.5 ? 'SUPPLY KIT' : 'EMPTY') : d.role === 'RELAY' ? 'MESH RADIO' : 'GIMBAL';
     const tech = this.techMode
       ? `<div class="dc-tech">
           <div class="row"><span>AIRFRAME</span><span>X500-derived sim platform<i class="tag con">CONCEPT</i></span></div>
@@ -200,8 +202,8 @@ export class Hud {
           <div class="row"><span>COMPANION</span><span>simulation equivalent<i class="tag sim">SIM</i></span></div>
           <div class="row"><span>SENSORS</span><span>${ROLE_SENSORS[d.role].toLowerCase()}</span></div>
           <div class="row"><span>PAYLOAD</span><span>configurable · ${d.role.toLowerCase()}</span></div>
-          <div class="row"><span>ENDURANCE</span><span>${DRONE.enduranceMin} min<i class="tag sim">SIM</i></span></div>
-          <div class="row"><span>MAX SPEED</span><span>${DRONE.maxSpeed} m/s<i class="tag sim">SIM</i></span></div>
+          <div class="row"><span>ENDURANCE</span><span>${d.enduranceMin} min<i class="tag sim">SIM</i></span></div>
+          <div class="row"><span>MAX SPEED</span><span>${d.vmax} m/s<i class="tag sim">SIM</i></span></div>
           <div class="row"><span>DISTANCE FLOWN</span><span>${(d.totalDist / 1000).toFixed(2)} km</span></div>
         </div>`
       : '';
@@ -225,5 +227,5 @@ export class Hud {
 }
 
 export function prettyKind(k: string): string {
-  return ({ VERIFY: 'Verify possible human', RESCUE: 'Rescue', SUPPRESS: 'Suppression', SEARCH: 'Search', RELAY: 'Comms relay', PROTECT_ROAD: 'Protect evac road', MONITOR: 'Fire mapping' } as Record<string, string>)[k] ?? k;
+  return ({ VERIFY: 'Verify possible human', RESCUE: 'Rescue', SUPPRESS: 'Suppression', ATTACK: 'Initial attack', TREAT: 'Retardant line', SEARCH: 'Search', RELAY: 'Comms relay', PROTECT_ROAD: 'Protect evac road', MONITOR: 'Fire mapping' } as Record<string, string>)[k] ?? k;
 }

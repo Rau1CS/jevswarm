@@ -256,3 +256,70 @@ button, input, select { font: inherit; color: inherit; }
   .sys { display: none; }
   #tech-page { grid-template-columns: 1fr; grid-template-rows: 45vh 1fr; }
 }
+
+/* ---------- suppression loadout (title screen) ---------- */
+#loadout { position: absolute; right: 5vw; bottom: 16vh; width: 380px; background: rgba(8, 11, 14, 0.86); border: 1px solid var(--line-strong); backdrop-filter: blur(8px); padding: 14px 16px 14px; font-size: 12.5px; }
+.lo-head { font-weight: 700; letter-spacing: 0.2em; font-size: 12px; margin-bottom: 10px; }
+.lo-head .muted { font-weight: 400; letter-spacing: 0.08em; }
+.lo-row { display: grid; grid-template-columns: 78px 1fr; align-items: center; gap: 8px; margin: 6px 0; }
+.lo-row .k, .lab-ctl label { font-size: 9.5px; letter-spacing: 0.18em; color: var(--muted); font-weight: 600; }
+.lo-row select, .lab-ctl select { width: 100%; background: #0b1014; border: 1px solid var(--line-strong); padding: 5px 6px; font-size: 12px; }
+.lo-row .seg { display: flex; }
+.lo-row .seg button { flex: 1; background: none; border: 1px solid var(--line-strong); padding: 5px 4px; font-size: 10.5px; letter-spacing: 0.12em; cursor: pointer; color: var(--muted); }
+.lo-row .seg button + button { border-left: none; }
+.lo-row .seg button.on { color: #0a0f12; background: var(--jev); border-color: var(--jev); }
+.lo-derived { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; font-family: var(--mono); font-size: 11px; }
+.lo-derived > div { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
+.lo-derived span { color: var(--muted); }
+.lo-derived b { font-weight: 500; text-align: right; }
+.lo-derived .formula { color: var(--dim); font-size: 10px; display: block; margin: -1px 0 5px; }
+.lo-warn { margin-top: 8px; border-left: 2px solid var(--amber); padding: 3px 8px; color: #e7c79a; font-size: 11px; line-height: 1.35; }
+.lo-actions { display: flex; gap: 8px; margin-top: 12px; }
+.lo-actions button { flex: 1; border: 1px solid var(--line-strong); background: rgba(10, 14, 18, 0.7); padding: 8px 6px; font-weight: 600; letter-spacing: 0.14em; font-size: 10.5px; cursor: pointer; }
+.lo-actions button:hover { border-color: rgba(220, 235, 245, 0.6); }
+.lo-actions button.ghost { color: var(--muted); }
+.tag.asm { color: #d7a2d9; }
+@media (max-width: 1180px) { #loadout { position: static; width: auto; max-width: 520px; margin-top: 20px; } #title-screen { overflow-y: auto; align-items: flex-start; padding-top: 6vh; } }
+
+/* ---------- suppression overlays (lab + catalogue) ---------- */
+#sup-overlay { position: fixed; inset: 0; z-index: 40; background: rgba(3, 5, 7, 0.78); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; padding: 3vh 2vw; }
+.so-card { width: min(1180px, 100%); max-height: 94vh; display: flex; flex-direction: column; background: #0a0e12; border: 1px solid var(--line-strong); }
+.so-head { display: flex; justify-content: space-between; align-items: flex-start; padding: 16px 20px 12px; border-bottom: 1px solid var(--line); }
+.so-title { font-size: 20px; font-weight: 700; letter-spacing: 0.22em; }
+.so-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 4px; }
+.so-x { background: none; border: 1px solid var(--line-strong); width: 30px; height: 30px; cursor: pointer; }
+.so-body { overflow-y: auto; padding: 14px 20px 20px; font-size: 13px; line-height: 1.45; }
+.so-body h2 { font-size: 12px; letter-spacing: 0.24em; color: var(--jev); margin: 18px 0 8px; }
+.so-body a { color: var(--jev); }
+.so-p { color: #c3cdd3; margin: 0 0 12px; max-width: 900px; }
+.so-note { color: var(--dim); font-size: 11.5px; margin-top: 14px; }
+.lab-ctl { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.lab-ctl label { display: flex; flex-direction: column; gap: 4px; min-width: 110px; }
+.lab-ctl button.primary { background: var(--jev); color: #0a0f12; border: none; padding: 8px 26px; font-weight: 700; letter-spacing: 0.18em; cursor: pointer; }
+.lab-prog { position: relative; height: 22px; border: 1px solid var(--line); margin: 14px 0 6px; }
+.lab-prog i { position: absolute; inset: 0 auto 0 0; background: rgba(169, 214, 226, 0.22); transition: width 0.2s; }
+.lab-prog span { position: relative; font-family: var(--mono); font-size: 10.5px; padding: 0 8px; line-height: 20px; color: var(--muted); }
+.lab-t { width: 100%; border-collapse: collapse; margin-top: 10px; font-family: var(--mono); font-size: 11.5px; }
+.lab-t th { text-align: left; font-family: var(--sans); font-size: 9.5px; letter-spacing: 0.14em; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line-strong); }
+.lab-t td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.lab-t td .muted { font-size: 10px; margin-top: 2px; font-family: var(--sans); }
+.lab-bar { height: 5px; background: rgba(255, 255, 255, 0.06); margin-bottom: 4px; }
+.lab-bar i { display: block; height: 100%; background: var(--crit); }
+.cat-principle { border-left: 2px solid var(--jev); padding: 6px 12px; background: rgba(169, 214, 226, 0.06); max-width: 920px; }
+.cat-block { margin: 10px 0 14px; }
+.cat-block h3 { font-size: 13px; letter-spacing: 0.1em; margin: 0 0 4px; }
+.cat-t { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 6px; }
+.cat-t td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.cat-t td:first-child { width: 230px; color: var(--muted); }
+.cat-t td:nth-child(2) { width: 170px; font-family: var(--mono); white-space: nowrap; }
+.cat-note, .cat-ref { font-size: 12px; color: #c3cdd3; margin: 5px 0; }
+.cat-note { border-left: 2px solid var(--amber); padding-left: 8px; }
+
+/* ---------- results: suppression card ---------- */
+.res-card.sup { left: calc(7vw + 440px); width: 460px; top: 16px; transform: none; max-height: calc(100vh - 120px); overflow-y: auto; }
+.res-card.sup h2 { font-size: 17px; padding: 12px 18px 10px; }
+.res-card.sup .res-grid > div { padding: 8px 18px; }
+.res-card.sup .res-grid .v { font-size: 17px; }
+.res-grid .s { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
+.res-note { padding: 10px 22px 14px; font-size: 11px; color: var(--dim); }
+@media (max-width: 1100px) { .res-card.sup { display: none; } }

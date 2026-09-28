@@ -3,7 +3,7 @@
  * Pipeline: observable state → candidate objectives (code) → judgments (Jev or fallback)
  * → allocation (code) → drone tasks. Flight, sensing and fire stay deterministic code.
  */
-import { fmtClock } from '../core/math';
+import { fmtClock, sectorOf, windToward } from '../core/math';
 import type { Drone, Task } from '../sim/drone';
 import { allocate, type AllocResult } from './allocator';
 import { describeDirective, parseFallback, parseWithJev } from './commands';
@@ -116,7 +116,10 @@ export class JevCoordinator {
         this.corridors.set(o.detectionId, { route, flown: false, guided: st?.guided ?? false, plannedAt: view.t });
       }
     }
-    const res = allocate(objs, j, view.drones, this.directive);
+    const policy = view.policy ?? 'COORDINATOR';
+    // Baseline policies: suppression aircraft are tasked by a fixed rule, not by the coordinator.
+    const pool = policy === 'COORDINATOR' ? view.drones : view.drones.filter((d) => d.role !== 'SUPPRESSION');
+    const res = allocate(objs, j, pool, this.directive, { suppressionModular: view.loadout?.platform.modular ?? true });
     this.alloc = res;
     const changes: PlanChange[] = [];
     const byId = new Map(objs.map((o) => [o.id, o]));
@@ -147,6 +150,7 @@ export class JevCoordinator {
       if (a.swapTo) task = { kind: 'SWAP', objectiveId: o.id, target: a.drone.pad, label: `PAYLOAD SWAP → ${a.swapTo}`, swapTo: a.swapTo, then: task };
       set(a.drone, task, o.id);
     }
+    if (policy !== 'COORDINATOR' && !recall) this.baselineSuppression(view, policy, set);
     for (const d of res.reserve) {
       if (d.task.kind !== 'RESERVE') set(d, { kind: 'RESERVE', target: d.pad, label: 'RESERVE', objectiveId: 'RESERVE' }, 'RESERVE');
     }
@@ -194,6 +198,29 @@ export class JevCoordinator {
       }
     }
     this.ev.replanned(changes, j, objs);
+  }
+
+  /** NONE: suppression aircraft stay on the pad. NEAREST: each attacks the front cell nearest to itself. */
+  private baselineSuppression(view: CoordView, policy: 'NEAREST' | 'NONE', set: (d: Drone, task: Task, objectiveId: string) => void): void {
+    const sup = view.drones.filter((d) => d.role === 'SUPPRESSION' && d.available && d.status !== 'LINK_LOST' && d.task.kind !== 'RTB');
+    if (policy === 'NONE') {
+      for (const d of sup) if (d.task.kind !== 'RESERVE') set(d, { kind: 'RESERVE', target: d.pad, label: 'RESERVE · NO SUPPRESSION', objectiveId: 'RESERVE' }, 'RESERVE');
+      return;
+    }
+    const front = view.fire.frontCells().map((k) => view.fire.cellCenter(k % view.fire.n, (k / view.fire.n) | 0));
+    if (!front.length) return;
+    const pre = view.loadout?.agent.mission === 'PRETREAT';
+    const w = windToward(view.fire.wind.fromDeg);
+    for (const d of sup) {
+      let best = front[0], bd = Infinity;
+      for (const p of front) {
+        const dd = (p.x - d.x) ** 2 + (p.z - d.z) ** 2;
+        if (dd < bd) { bd = dd; best = p; }
+      }
+      const target = pre ? { x: best.x + w.x * 60, z: best.z + w.z * 60 } : best;
+      const id = `NEAR_${d.id}`;
+      set(d, { kind: 'SUPPRESS', objectiveId: id, target, label: `${pre ? 'RETARDANT' : 'SUPPRESS'} NEAREST ${sectorOf(target.x, target.z)}` }, id);
+    }
   }
 
   async command(text: string, t: number): Promise<Directive> {

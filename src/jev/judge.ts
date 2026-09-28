@@ -14,7 +14,7 @@ export const URGENCY_LEVELS = [
   'Routine: nobody and nothing important is at stake for at least 15 minutes; this can wait.',
   'Low: useful for situational awareness, but nothing is threatened in the next 10 minutes.',
   'Moderate: people or property could be affected within about 10 minutes, or important information is unresolved.',
-  'High: a possible person or an evacuation route could be reached by fire within 5 to 10 minutes.',
+  'High: a possible person or an evacuation route could be reached by fire within 5 to 10 minutes, or a new fire is still small enough to contain only if drones attack it now.',
   'Critical: a person is likely to be in danger within about 5 minutes unless drones act now.',
 ];
 
@@ -69,7 +69,7 @@ export class JevClient {
 
 /** Pre-rank so the most relevant objectives are the ones Jev sees when there are many. */
 export function prerank(o: Objective): number {
-  const base = { RESCUE: 5, VERIFY: 4, SUPPRESS: 3, PROTECT_ROAD: 3, RELAY: 2, MONITOR: 1.5, SEARCH: 1 }[o.kind];
+  const base = { RESCUE: 5, VERIFY: 4, SUPPRESS: 3, ATTACK: 3.2, TREAT: 3, PROTECT_ROAD: 3, RELAY: 2, MONITOR: 1.5, SEARCH: 1 }[o.kind];
   return base + (Number.isFinite(o.arrivalSec) ? Math.max(0, 3 - o.arrivalSec / 200) : 0) + o.boost;
 }
 
@@ -93,7 +93,7 @@ export function buildJevRequest(objs: Objective[], ctx: JudgeContext) {
     priority: {
       type: 'choice',
       instructions:
-        "Which objective in `objectives` should the wildfire rescue drone swarm treat as its single top priority right now? Protect human life first, then keep fire away from people and evacuation routes, then build situational awareness. Follow `commander_intent` unless doing so would leave a person in immediate danger.",
+        "Which objective in `objectives` should the wildfire rescue drone swarm treat as its single top priority right now? Protect human life first, then keep fire away from people and evacuation routes, then stop a new fire while it is still small enough to contain, then build situational awareness. Follow `commander_intent` unless doing so would leave a person in immediate danger.",
       criteria: Object.fromEntries(top.map((o) => [o.id, `${o.kind} in ${o.sector}: ${o.facts}`])),
     },
   };
@@ -148,6 +148,9 @@ export function fallbackJudge(objs: Objective[], _ctx: JudgeContext): Judgment {
       case 'VERIFY': u = band(arr, 3.7, 2.8, 1.9); break;
       case 'SUPPRESS': u = band(arr, 3.3, 2.4, 1.3); break;
       case 'PROTECT_ROAD': u = band(arr, 3, 2.2, 1.2); break;
+      // Initial attack: a small fire is worth hitting hard; a large one only near assets.
+      case 'ATTACK': u = o.id.startsWith('ATK_SPOT') ? 3.4 : (o.sizeHa ?? 99) < 3 ? (o.id === 'ATK_HEAD' ? 3.3 : 2.6) : band(arr, 3, 2.2, 1.4); break;
+      case 'TREAT': u = band(arr, 3, 2.6, 1.8); break;
       case 'RELAY': u = 2; break;
       case 'MONITOR': u = 1.5; break;
       case 'SEARCH': u = 0.9 + (arr < 600 ? 0.6 : 0); break;

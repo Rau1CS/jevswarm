@@ -6,6 +6,7 @@ import type { Drone } from '../sim/drone';
 import type { LabelSpec } from '../ui/labels';
 import type { ViewMode } from '../render/stage';
 import { objectiveWeight } from '../jev/allocator';
+import { isAbstract } from '../sim/loadout/catalogue';
 
 const PLACES = [
   { key: 'p-base', x: BASE_POS.x + 40, z: BASE_POS.z - 60, text: 'COMMAND POST' },
@@ -17,6 +18,15 @@ const PLACES = [
 export function buildLabels(sim: Simulation, view: ViewMode, selected: Drone | null, hovered: Drone | null, highlight: Map<string, number>, now: number, replay: boolean): LabelSpec[] {
   const out: LabelSpec[] = [];
   for (const p of PLACES) out.push({ key: p.key, x: p.x, y: heightAt(p.x, p.z) + 40, z: p.z, html: p.text, cls: 'place', maxDist: 2600, priority: 1, w: p.text.length * 8 + 10 });
+
+  // Refill stations with live slot occupancy (physically modelled loadouts).
+  if (!isAbstract(sim.lo)) {
+    for (const s of sim.logistics.stations) {
+      if (s.id === 'LAKE' && sim.lo.agent.refill === 'STATION') continue;
+      const text = `${s.id === 'LAKE' ? 'DIP POINT' : s.id === 'FWD' ? 'FORWARD REFILL' : 'REFILL STATION'} · ${s.busy.size}/${s.slots}${s.queue.length ? ` · ${s.queue.length} WAITING` : ''}`;
+      out.push({ key: `st-${s.id}`, x: s.x, y: heightAt(s.x, s.z) + (s.id === 'LAKE' ? 70 : 28), z: s.z, html: text, cls: 'place', maxDist: 2600, priority: 3, w: text.length * 7 + 10 });
+    }
+  }
 
   for (const d of sim.drones) {
     const hi = (highlight.get(d.id) ?? 0) > now;

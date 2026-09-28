@@ -2,7 +2,7 @@
  * Simulation hub: owns world state, steps it at a fixed rate, bridges drone hooks,
  * sensor events and the JevCoordinator, and exposes events for rendering/UI.
  */
-import { BASE_POS, DRONE, SIM_STEP } from '../config';
+import { BASE_POS, SIM_STEP } from '../config';
 import { Rng, dist2, fmtClock, sectorOf } from '../core/math';
 import { JevCoordinator } from '../jev/coordinator';
 import type { CoordView } from '../jev/objectives';
@@ -13,6 +13,10 @@ import { Drone, type DroneHooks, type Role } from './drone';
 import { FireModel } from './fire';
 import { Sensors, type Detection } from './sensors';
 import { spawnVehicles, updateVehicle, type Vehicle } from './vehicles';
+import { AGENTS, capacity, isAbstract, loadout, type AgentId, type Loadout, type PlatformId } from './loadout/catalogue';
+import { Ledger } from './ledger';
+import { Logistics } from './logistics';
+import { applyAgent, hottestCell } from './suppression';
 import { heightAt, type Pt } from '../world/layout';
 
 export interface FxEvent {
@@ -37,16 +41,39 @@ export interface ScenarioOpts {
   fireOrigin: Pt;
   wind: { fromDeg: number; speed: number };
   sensorQuality: number;
+  /** Suppression platform + agent. Default: the legacy 120 L concept with the abstract effect. */
+  loadout?: { platform: PlatformId; agent: AgentId };
+  /** How suppression drones are tasked: coordinator (Jev/fallback), nearest-fire rule, or none. */
+  policy?: Policy;
+  /** Seconds of fire growth before the mission starts (default 30). */
+  preburnSec?: number;
+  ignitionRadius?: number;
+  /** Later ignitions (spot fires), mission time in seconds. */
+  spotFires?: { t: number; x: number; z: number }[];
+  /** SIM fuel dryness multiplier on spread rate (default 1). */
+  spreadMult?: number;
+  /** Optional forward refill truck position. */
+  forwardStation?: Pt | null;
+  /** Fleet role mix as fractions [scout, suppression, logistics, relay]; default 0.5/0.25/0.09/0.16. */
+  mix?: [number, number, number, number];
+  /** Common random numbers in the fire model (paired policy comparisons). */
+  crn?: boolean;
+  /** SIM knockdown application density for plain water at full intensity (L/m², default 1). */
+  knockdownDensity?: number;
+  name?: string;
 }
+
+export type Policy = 'COORDINATOR' | 'NEAREST' | 'NONE';
 
 export interface Package { x: number; y: number; z: number; vy: number; landed: boolean }
 
-export function roleFor(i: number, n: number): Role {
-  // 24-drone layout: D01–D12 scouts, D13–D18 suppression, D19–D20 logistics, D21–D24 relay.
+export function roleFor(i: number, n: number, mix: [number, number, number, number] = [0.5, 0.25, 0.09, 0.16]): Role {
+  // Default 24-drone layout: D01–D12 scouts, D13–D18 suppression, D19–D20 logistics, D21–D24 relay.
   const f = i / n;
-  if (f < 0.5) return 'SCOUT';
-  if (f < 0.75) return 'SUPPRESSION';
-  if (f < 0.84) return 'LOGISTICS';
+  const [a, b, c] = mix;
+  if (f < a) return 'SCOUT';
+  if (f < a + b) return 'SUPPRESSION';
+  if (f < a + b + c) return 'LOGISTICS';
   return 'RELAY';
 }
 
@@ -66,6 +93,11 @@ export class Simulation {
   log: LogEntry[] = [];
   arrival: Float64Array;
   stats = { drops: 0, dronesLost: 0, falsePositives: 0, confirmed: 0 };
+  readonly lo: Loadout;
+  readonly policy: Policy;
+  readonly ledger: Ledger;
+  readonly logistics: Logistics;
+  private spots: { t: number; x: number; z: number }[];
   private acc = 0;
   private commAcc = 0;
   private listeners: SimListeners[] = [];
@@ -79,15 +111,29 @@ export class Simulation {
     this.arrival = new Float64Array(this.fire.n * this.fire.n).fill(Infinity);
     this.fire.setWind(opts.wind, true);
     this.lastWindFrom = opts.wind.fromDeg;
-    this.fire.ignite(opts.fireOrigin.x, opts.fireOrigin.z, 30);
+    this.lo = loadout(opts.loadout?.platform ?? 'CONCEPT120', opts.loadout?.agent ?? 'ABSTRACT');
+    this.policy = opts.policy ?? 'COORDINATOR';
+    this.ledger = new Ledger(this.lo);
+    this.logistics = new Logistics(opts.forwardStation ?? null);
+    this.spots = [...(opts.spotFires ?? [])].sort((a, b) => a.t - b.t);
+    this.fire.spreadMult = opts.spreadMult ?? 1;
+    if (opts.crn) this.fire.crnSeed = (opts.seed * 2654435761) >>> 0;
+    this.fire.ignite(opts.fireOrigin.x, opts.fireOrigin.z, opts.ignitionRadius ?? 30);
     // Pre-burn so the opening shot already shows an established fire.
-    for (let i = 0; i < 150; i++) this.fire.update(0.2);
+    for (let i = 0; i < (opts.preburnSec ?? 30) / 0.2; i++) this.fire.update(0.2);
     this.civilians = spawnCivilians(new Rng(opts.seed + 3), opts.civilians, opts.hero);
     this.vehicles = spawnVehicles();
     const cols = Math.max(5, Math.ceil(Math.sqrt(opts.drones)));
+    // Heavy-lift airframes (≈1.9 m, drawn at 5×) need wider pad spacing than quads.
+    const gap = this.lo.platform.airframe === 'HEAVY' ? 22 : 12;
     for (let i = 0; i < opts.drones; i++) {
-      const pad = { x: BASE_POS.x - 60 + (i % cols) * 12, z: BASE_POS.z - 40 + Math.floor(i / cols) * 12 };
-      this.drones.push(new Drone(`D${String(i + 1).padStart(2, '0')}`, i, roleFor(i, opts.drones), pad));
+      const pad = { x: BASE_POS.x - 60 + (i % cols) * gap, z: BASE_POS.z - 40 + Math.floor(i / cols) * gap };
+      this.drones.push(new Drone(`D${String(i + 1).padStart(2, '0')}`, i, roleFor(i, opts.drones, opts.mix), pad));
+    }
+    const pf = this.lo.platform, cap = capacity(this.lo);
+    for (const d of this.drones) {
+      d.spec = { capacity: cap, maxSpeed: pf.maxSpeed.v, enduranceMin: pf.enduranceMin.v, dischargeSec: cap / pf.dischargeLps.v, pumpLps: pf.pumpLps.v };
+      d.releaseHook = (q) => this.logistics.release(q.id);
     }
     this.coordinator = new JevCoordinator({
       log: (e) => this.emitLog(e),
@@ -121,6 +167,7 @@ export class Simulation {
   view(): CoordView {
     return {
       t: this.t, fire: this.fire, arrival: this.arrival, sensors: this.sensors, drones: this.drones,
+      loadout: this.lo, policy: this.policy,
       directive: this.coordinator.directive, corridors: this.coordinator.corridors,
       confirmedCiv: (detId) => {
         const det = this.sensors.detections.find((d) => d.id === detId);
@@ -142,12 +189,47 @@ export class Simulation {
 
   readonly hooks: DroneHooks = {
     onDrop: (d, x, z) => {
-      const red = this.fire.suppress(x, z, 40, 0.95);
       this.stats.drops++;
-      this.fx({ type: 'drop', x: d.x, y: d.y, z: d.z, droneId: d.id, amount: red });
-      const effect = red > 0.05 ? `fire intensity −${Math.round(red * 100)}%` : 'pre-wetting fuel ahead of front';
-      this.emitLog({ t: this.t, title: 'SUPPRESSION DROP', lines: [d.id, `${DRONE.suppressantLitres} L equivalent (SIM)`, effect], level: 'ok' });
+      if (isAbstract(this.lo)) {
+        const red = this.fire.suppress(x, z, 40, 0.95);
+        this.fx({ type: 'drop', x: d.x, y: d.y, z: d.z, droneId: d.id, amount: red });
+        const effect = red > 0.05 ? `fire intensity −${Math.round(red * 100)}%` : 'pre-wetting fuel ahead of front';
+        this.emitLog({ t: this.t, title: 'SUPPRESSION DROP', lines: [d.id, '120 L equivalent (abstract effect)', effect], level: 'ok' });
+        this.coordinator.trigger('suppression drop');
+        return 1.2;
+      }
+      const litres = d.payload * capacity(this.lo);
+      const app = applyAgent(this.fire, this.lo, x, z, litres, this.opts.knockdownDensity);
+      this.ledger.record(app, this.t, d.id);
+      this.fx({ type: 'drop', x: d.x, y: d.y, z: d.z, droneId: d.id, amount: app.knocked ? 1 : app.effective / Math.max(1, litres) });
+      const u = this.lo.agent.unit;
+      const pre = this.lo.agent.mission === 'PRETREAT';
+      const what = pre
+        ? (app.effective > 0 ? 'retardant on unburned fuel ahead of the fire' : 'missed: fuel already burning or burnt')
+        : app.knocked ? 'hotspot knocked down' : app.effective > 0 ? `flaming cell ${Math.round((1 - app.intensityAfter / Math.max(0.01, app.intensityBefore)) * 100)}% suppressed` : 'no flame under the drop (pre-wetting)';
+      this.emitLog({ t: this.t, title: pre ? 'RETARDANT DROP' : 'SUPPRESSION DROP', lines: [`${d.id} · ${litres.toFixed(1)} ${u} ${AGENTS[this.lo.agent.id].name.toLowerCase()}`, `${app.onTarget.toFixed(1)} ${u} on target (${Math.round((app.onTarget / Math.max(0.01, litres)) * 100)}%)`, what], level: 'ok' });
       this.coordinator.trigger('suppression drop');
+      return Math.max(1, litres / this.lo.platform.dischargeLps.v);
+    },
+    refillStation: (d) => {
+      const pf = this.lo.platform;
+      return this.logistics.pick(this.lo, d, pf.maxSpeed.v, capacity(this.lo) / pf.pumpLps.v).id;
+    },
+    requestRefill: (d, st) => this.logistics.request(st, d.id),
+    releaseRefill: (d, queued) => {
+      this.logistics.release(d.id);
+      if (!isAbstract(this.lo)) this.ledger.queued(queued);
+    },
+    refillPos: (d, st) => this.logistics.slotPos(st, d.id),
+    aimPoint: (_d, target) => {
+      if (isAbstract(this.lo) || this.lo.agent.mission !== 'DIRECT') return target;
+      // SIM: the thermal camera finds flaming fuel within ~90 m of the planned point on the run-in.
+      const k = hottestCell(this.fire, target.x, target.z, 90);
+      return k >= 0 ? this.fire.cellCenter(k % this.fire.n, (k / this.fire.n) | 0) : target;
+    },
+    stationPos: (st) => {
+      const s = this.logistics.get(st) ?? this.logistics.stations[1];
+      return { x: s.x, z: s.z, dip: s.dip };
     },
     onDeliver: (d, x, z) => {
       this.packages.push({ x, y: d.y - 2, z, vy: 0, landed: false });
@@ -229,7 +311,14 @@ export class Simulation {
 
   step(dt: number): void {
     this.t += dt;
+    while (this.spots.length && this.spots[0].t <= this.t) {
+      const sp = this.spots.shift()!;
+      this.fire.ignite(sp.x, sp.z, 14);
+      this.emitLog({ t: this.t, title: 'SPOT FIRE', lines: [`new ignition ${sectorOf(sp.x, sp.z)}`, 'embers ahead of the main fire'], level: 'warn' });
+      this.coordinator.trigger('spot fire');
+    }
     this.fire.update(dt);
+    for (const d of this.drones) if (d.role === 'SUPPRESSION' && d.airborne) this.ledger.flightSec += dt;
     for (const d of this.drones) d.update(dt, this.t, this.hooks);
     this.separation();
     this.sensors.update(dt, this.t, this.drones, this.civilians, this.fire, this.sensorEvents);
@@ -329,6 +418,8 @@ export class Simulation {
       jevCalls: this.coordinator.jevCalls,
       drops: this.stats.drops,
       falsePositives: this.stats.falsePositives,
+      areaHa: this.fire.stats().areaHa,
+      suppression: this.ledger.summary(this.fire, this.drones.filter((d) => d.role === 'SUPPRESSION').length),
     };
   }
 }

@@ -1,7 +1,7 @@
 import type { Drone, Role, TaskKind } from '../sim/drone';
 import type { Pt } from '../world/layout';
 
-export type ObjectiveKind = 'VERIFY' | 'RESCUE' | 'SUPPRESS' | 'SEARCH' | 'RELAY' | 'PROTECT_ROAD' | 'MONITOR';
+export type ObjectiveKind = 'VERIFY' | 'RESCUE' | 'SUPPRESS' | 'ATTACK' | 'TREAT' | 'SEARCH' | 'RELAY' | 'PROTECT_ROAD' | 'MONITOR';
 
 /** A slot the allocator fills with one drone. */
 export interface Slot {
@@ -23,6 +23,8 @@ export interface Objective {
   x: number; z: number;
   facts: string;
   arrivalSec: number; // predicted fire arrival at the objective (Infinity if none)
+  /** Fire size when the objective was built (suppression objectives). */
+  sizeHa?: number;
   detectionId?: string;
   slots: Slot[];
   /** Code-side modifiers (commander intent); never hidden from the log. */

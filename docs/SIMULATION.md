@@ -25,10 +25,14 @@ None of it is a validated fire-behaviour, sensor or airworthiness model.
 
 ## Suppression
 
-- One sortie = **"120 L equivalent"**: a visual/abstract payload representing a heavy-lift
-  suppression platform. An X500-class airframe carries ≈ 1.5 kg; it could not do this.
-- A drop reduces intensity inside ~40 m (up to 85 %), wets fuel (slows re-ignition for minutes)
-  and produces steam. Refill = low hover over the lake for ~8 s.
+Two modes (see [SUPPRESSION_MODEL.md](SUPPRESSION_MODEL.md)):
+
+- **Physical loadouts** (free simulation, lab): platform + agent from the catalogue; capacity =
+  (payload − dispenser) ÷ density; released → on target → effective accounting; sub-cell
+  coverage, residual heat and rekindling, dose-dependent retardant; finite refill slots.
+- **Legacy abstraction** (cinematic demo, "120 L concept platform"): one sortie = "120 L
+  equivalent", a drop reduces intensity inside ~40 m (up to 85 %) and wets fuel. Not derived
+  from delivered litres. An X500-class airframe carries ≈ 1.5 kg; it could not do this.
 
 ## Drones (`src/sim/drone.ts`)
 

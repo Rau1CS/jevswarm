@@ -26,7 +26,10 @@ import { TechPage } from '../ui/techPage';
 import { SoundScape } from '../audio/audio';
 import { Director } from '../demo/director';
 import { buildLabels } from './labelSpecs';
-import { demoScenario, freeScenario } from './scenarios';
+import { demoScenario, setupScenario } from './scenarios';
+import { LoadoutPanel } from '../ui/loadoutPanel';
+import { SupOverlay } from '../ui/labPanel';
+import { isAbstract } from '../sim/loadout/catalogue';
 
 type Mode = 'MENU' | 'DEMO' | 'FREE' | 'RESULTS';
 const $ = (id: string) => document.getElementById(id)!;
@@ -48,6 +51,8 @@ export class App {
   tech = new TechPage();
   sound = new SoundScape();
   recorder = new Recorder();
+  loadoutPanel = new LoadoutPanel();
+  supOverlay = new SupOverlay();
   director: Director | null = null;
   scheduler: EventScheduler | null = null;
   mode: Mode = 'MENU';
@@ -100,12 +105,17 @@ export class App {
     $('btn-demo').addEventListener('click', () => this.startDemo());
     $('btn-free').addEventListener('click', () => this.startFree());
     $('btn-tech2').addEventListener('click', () => this.openTech());
+    this.loadoutPanel.onLab = () => this.supOverlay.openLab(this.loadoutPanel.setup, this.droneCount);
+    this.loadoutPanel.onCatalogue = () => this.supOverlay.openCatalogue();
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
       if (e.key === '1') this.setView('WORLD');
       if (e.key === '2') this.setView('JEV');
       if (e.key === '3') this.setView('THERMAL');
-      if (e.key === 'Escape') this.select(null);
+      if (e.key === 'Escape') {
+        this.supOverlay.close();
+        this.select(null);
+      }
     });
     // Menu backdrop: slow orbit over the burning valley.
     this.rig.flyTo(new THREE.Vector3(-1500, 700, 900), new THREE.Vector3(-300, 40, -100), 0.01);
@@ -129,6 +139,8 @@ export class App {
     this.sim = new Simulation(opts);
     if (this.world) this.world.fireTex.image.data = this.sim.fire.tex;
     this.recorder = new Recorder();
+    this.hud.agentUnit = this.sim.lo.agent.unit;
+    this.drones.setSuppressionAirframe(this.sim.lo.platform.airframe);
     this.paths.clear();
     this.labels.clear();
     this.hud.clearLog();
@@ -190,7 +202,8 @@ export class App {
     await this.sim.coordinator.init();
     this.hud.setCoordinator(this.sim.coordinator.label, this.sim.coordinator.mode === 'JEV');
     this.mode = mode;
-    this.hud.setMode(mode === 'DEMO' ? 'CINEMATIC DEMO' : 'FREE SIMULATION');
+    const lo = this.sim.lo;
+    this.hud.setMode(mode === 'DEMO' ? 'CINEMATIC DEMO' : isAbstract(lo) ? 'FREE SIMULATION' : `${this.sim.opts.name?.toUpperCase() ?? 'FREE SIMULATION'} · ${lo.platform.id} · ${lo.agent.id.replace('_', ' ')}`);
     $('title-screen').classList.add('hidden');
     this.setView('WORLD');
     this.rig.release();
@@ -232,7 +245,7 @@ export class App {
   }
 
   async startFree(): Promise<void> {
-    await this.prepare(freeScenario(this.droneCount), 'FREE');
+    await this.prepare(setupScenario(this.droneCount, this.loadoutPanel.setup), 'FREE');
     this.director = null;
     this.hud.show(true);
     this.hud.caption(null);

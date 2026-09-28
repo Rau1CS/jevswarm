@@ -10,6 +10,9 @@ import type { Drone } from '../sim/drone';
 import type { FireModel } from '../sim/fire';
 import type { Sensors } from '../sim/sensors';
 import { areaSectors, relayPointFor, searchPattern } from './planner';
+import { isAbstract, type Loadout } from '../sim/loadout/catalogue';
+import type { Policy } from '../sim/simulation';
+import { suppressionObjectives } from './suppressionObjectives';
 import type { Directive, Objective, Slot } from './types';
 
 export interface CorridorState {
@@ -28,6 +31,8 @@ export interface CoordView {
   directive: Directive | null;
   corridors: Map<string, CorridorState>;
   confirmedCiv(detId: string): Civilian | undefined;
+  loadout?: Loadout;
+  policy?: Policy;
 }
 
 export const fmtMin = (s: number) => (Number.isFinite(s) ? `${(s / 60).toFixed(1)} min` : 'not predicted within 15 min');
@@ -54,6 +59,14 @@ function nearestFront(front: number[], fire: FireModel, p: Pt, maxDist: number):
     if (d < maxDist && (!best || d < best.d)) best = { pt: c, d };
   }
   return best;
+}
+
+/** Retardant goes on unburned fuel between the front and what it protects, not on flames. */
+function supTarget(v: CoordView, front: Pt, asset: Pt): Pt {
+  if (v.loadout?.agent.mission !== 'PRETREAT') return front;
+  const d = dist2(front.x, front.z, asset.x, asset.z) || 1;
+  const k = Math.min(0.6, 70 / d);
+  return { x: front.x + (asset.x - front.x) * k, z: front.z + (asset.z - front.z) * k };
 }
 
 const slot = (task: Slot['task'], prefer: Slot['prefer'], label: string, target: Pt, waypoints?: Pt[]): Slot =>
@@ -104,7 +117,9 @@ export function buildObjectives(v: CoordView): Objective[] {
     const prev = supBySector.get(sec);
     if (prev && prev.arrivalSec <= arr) continue;
     const n = nf.d < 300 || arr < 360 ? 2 : 1;
-    const slots = Array.from({ length: n }, () => slot('SUPPRESS', 'SUPPRESSION', `SUPPRESS ${sec}`, nf.pt));
+    const pre = v.loadout?.agent.mission === 'PRETREAT';
+    const tgt = supTarget(v, nf.pt, a.p);
+    const slots = Array.from({ length: n }, () => slot('SUPPRESS', 'SUPPRESSION', `${pre ? 'RETARDANT' : 'SUPPRESS'} ${sec}`, tgt));
     supBySector.set(sec, {
       id: `SUP_${sec}`, kind: 'SUPPRESS', sector: sec, x: nf.pt.x, z: nf.pt.z, arrivalSec: arr, slots,
       facts: `Active fire front in ${sec}, ${Math.round(nf.d)} m from ${a.label}; fire predicted to reach them in ${fmtMin(arr)}. A suppressant drop could slow it there.`,
@@ -128,12 +143,18 @@ export function buildObjectives(v: CoordView): Objective[] {
     const sec = sectorOf(worst.p.x, worst.p.z);
     const slots: Slot[] = [slot('PATROL', 'SCOUT', `PATROL ${road.name.toUpperCase()}`, worst.p, road.pts)];
     const nf = nearestFront(front, v.fire, worst.p, 500);
-    if (nf) slots.push(slot('SUPPRESS', 'SUPPRESSION', `PROTECT ROAD ${sectorOf(nf.pt.x, nf.pt.z)}`, nf.pt));
+    if (nf) slots.push(slot('SUPPRESS', 'SUPPRESSION', `PROTECT ROAD ${sectorOf(nf.pt.x, nf.pt.z)}`, supTarget(v, nf.pt, worst.p)));
     out.push({
       id: `ROAD_${road.id}`, kind: 'PROTECT_ROAD', sector: sec, x: worst.p.x, z: worst.p.z, arrivalSec: worst.arr, slots,
       facts: `${road.name} (evacuation route) near ${sec}: fire predicted to cut it in ${fmtMin(worst.arr)}.`,
       boost: protect ? 1.5 : 0,
     });
+  }
+
+  // Physically modelled loadouts: head/flank attack or retardant line (coordinator policy only).
+  if (v.loadout && !isAbstract(v.loadout) && (v.policy ?? 'COORDINATOR') === 'COORDINATOR') {
+    const nSup = v.drones.filter((d) => d.role === 'SUPPRESSION' && d.status !== 'FAILED').length;
+    out.push(...suppressionObjectives(v, nSup, (x, z) => arrivalNear(v, x, z)));
   }
 
   // Fire mapping.
@@ -190,5 +211,11 @@ export function buildObjectives(v: CoordView): Objective[] {
     });
   }
   out.push(...relays.values());
+  if ((v.policy ?? 'COORDINATOR') !== 'COORDINATOR') {
+    // Baselines: suppression drones are not tasked by the coordinator.
+    return out
+      .map((o) => ({ ...o, slots: o.slots.filter((s) => s.task !== 'SUPPRESS') }))
+      .filter((o) => o.slots.length > 0);
+  }
   return out;
 }

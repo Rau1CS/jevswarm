@@ -8,6 +8,14 @@ import { Rng, clamp, windToward } from '../core/math';
 import { heightAt, vegetationAt } from '../world/layout';
 
 export const UNBURNED = 0, BURNING = 1, BURNT = 2;
+/** SIM: base evaporation half-life of deposited water on fuel (s). */
+const WATER_HALF_LIFE = 300;
+/** SIM: cell-average water depth (L/m²) giving 50 % effective wetness. */
+const WET_HALF_DEPTH = 0.5;
+/** SIM: half-life of aimed-discharge coverage for plain water (s); scaled by retention. */
+const COVER_HALF_LIFE = 180;
+/** SIM: retardant dose (L/m² of mixture) giving half of the maximum spread reduction (≈ coverage level 2). */
+export const RET_HALF_DOSE = 0.8;
 
 export interface Wind { fromDeg: number; speed: number }
 
@@ -19,7 +27,39 @@ export class FireModel {
   readonly fuel0 = new Float32Array(FIRE_N * FIRE_N);
   readonly fuel = new Float32Array(FIRE_N * FIRE_N);
   readonly intensity = new Float32Array(FIRE_N * FIRE_N);
+  /** Effective fuel wetness 0..1 used by spread (max of physical water and the abstract demo wetting). */
   readonly wet = new Float32Array(FIRE_N * FIRE_N);
+  /** Abstract demo wetting (legacy 120 L concept drops), decays linearly. */
+  readonly wetAbstract = new Float32Array(FIRE_N * FIRE_N);
+  /** Deposited water, cell-average L/m². */
+  readonly water = new Float32Array(FIRE_N * FIRE_N);
+  /** Evaporation half-life multiplier of the water currently on the cell (agent retention). */
+  readonly retain = new Float32Array(FIRE_N * FIRE_N).fill(1);
+  /**
+   * Fraction of the cell's fuel area treated to knockdown density by aimed discharges (0..1).
+   * Drops are much smaller than a 15.6 m cell, so treatment accumulates as sub-cell coverage.
+   * It shrinks as the patch dries (half-life scaled by agent retention).
+   */
+  readonly cover = new Float32Array(FIRE_N * FIRE_N);
+  /** Water content of the agent that produced `cover` (0 for dry chemical: no cooling). */
+  readonly coverWater = new Float32Array(FIRE_N * FIRE_N);
+  /** Persistent retardant salts, cell-average L/m² of mixture. */
+  readonly salts = new Float32Array(FIRE_N * FIRE_N);
+  /** Residual heat 0..1 in knocked-down cells (rekindles if it stays hot and dry). */
+  readonly heat = new Float32Array(FIRE_N * FIRE_N);
+  /** SIM fuel-dryness multiplier on spread rate (1 = calibrated dry-season default). */
+  spreadMult = 1;
+  /**
+   * Common random numbers: when set, every stochastic fire event draws from hash(seed, tick,
+   * cell, event) instead of a shared sequence. Two runs with the same seed then face the same
+   * fire unless suppression actually changes it (variance reduction for policy comparisons).
+   * null = legacy sequential RNG (the cinematic demo depends on its exact sequence).
+   */
+  crnSeed: number | null = null;
+  private tickN = 0;
+  knockdowns = 0;
+  reignitions = 0;
+  extinguished = 0;
   readonly state = new Uint8Array(FIRE_N * FIRE_N);
   readonly height = new Float32Array(FIRE_N * FIRE_N);
   /** RGBA texture data: R intensity, G char, B wet, A heat. */
@@ -111,7 +151,20 @@ export class FireModel {
     return out;
   }
 
+  /** Uniform [0,1): sequential RNG, or a counter-based hash in common-random-number mode. */
+  private r(key: number, salt: number): number {
+    if (this.crnSeed === null) return this.rng.next();
+    let x = (this.crnSeed ^ Math.imul(this.tickN, 0x9e3779b1) ^ Math.imul(key, 0x85ebca77) ^ Math.imul(salt, 0xc2b2ae3d)) >>> 0;
+    x ^= x >>> 16;
+    x = Math.imul(x, 0x7feb352d);
+    x ^= x >>> 15;
+    x = Math.imul(x, 0x846ca68b);
+    x ^= x >>> 16;
+    return (x >>> 0) / 4294967296;
+  }
+
   private tick(dt: number): void {
+    this.tickN++;
     const N = FIRE_N;
     const wv = windToward(this.wind.fromDeg);
     const newly: number[] = [];
@@ -127,17 +180,20 @@ export class FireModel {
         if (this.state[nk] !== UNBURNED) continue;
         const f = this.fuel[nk];
         if (f < 0.08) continue;
-        const rate = (0.022 * (0.35 + 0.65 * f) * wf[d] * this.slopeF[k * 8 + d] * I * (1 - this.wet[nk])) / len;
-        if (this.rng.next() < 1 - Math.exp(-rate * dt)) newly.push(nk);
+        let rate = (0.022 * (0.35 + 0.65 * f) * wf[d] * this.slopeF[k * 8 + d] * I * (1 - this.wet[nk])) / len;
+        if (this.spreadMult !== 1) rate *= this.spreadMult;
+        if (this.salts[nk] > 0) rate *= 1 - this.retEff(nk);
+        if (this.r(nk * 8 + d, 1) < 1 - Math.exp(-rate * dt)) newly.push(nk);
       }
       // Ember spotting downwind from intense cells.
-      if (I > 0.75 && this.rng.next() < 0.0009 * this.wind.speed * dt) {
-        const dist = this.rng.range(4, 11);
-        const si = Math.round(i + wv.x * dist + this.rng.range(-2, 2));
-        const sj = Math.round(j + wv.z * dist + this.rng.range(-2, 2));
+      if (I > 0.75 && this.r(k, 2) < 0.0009 * this.wind.speed * dt) {
+        const dist = 4 + 7 * this.r(k, 3);
+        const si = Math.round(i + wv.x * dist + (-2 + 4 * this.r(k, 4)));
+        const sj = Math.round(j + wv.z * dist + (-2 + 4 * this.r(k, 5)));
         if (si >= 0 && sj >= 0 && si < N && sj < N) {
           const sk = sj * N + si;
-          if (this.state[sk] === UNBURNED && this.fuel[sk] > 0.4 && this.wet[sk] < 0.3) newly.push(sk);
+          // Treated fuel resists embers but is never immune.
+          if (this.state[sk] === UNBURNED && this.fuel[sk] > 0.4 && this.wet[sk] < 0.3 && (this.salts[sk] === 0 || this.r(sk, 6) > this.retEff(sk) * 0.7)) newly.push(sk);
         }
       }
     }
@@ -150,15 +206,20 @@ export class FireModel {
     // Burn down fuel; wetness evaporates slowly.
     const next: number[] = [];
     for (let k = 0; k < N * N; k++) {
-      if (this.wet[k] > 0) this.wet[k] = Math.max(0, this.wet[k] - dt * 0.004);
-      if (this.state[k] !== BURNING) continue;
+      this.evaporate(k, dt);
+      if (this.state[k] !== BURNING) {
+        if (this.heat[k] > 0) this.coolDown(k, dt);
+        continue;
+      }
       const f = this.fuel[k];
       const peak = 0.35 + 0.65 * this.fuel0[k];
       // Flaming front: intensity peaks early, then decays to smouldering as fuel is consumed.
       const remain = this.fuel0[k] > 0 ? f / this.fuel0[k] : 0;
-      const target = f > 0.1 ? peak * Math.min(1, 0.25 + remain * remain * 1.1) : 0;
+      // Treated sub-cell area cannot flame until it dries out.
+      const target = f > 0.1 ? peak * Math.min(1, 0.25 + remain * remain * 1.1) * (1 - this.cover[k]) : 0;
       this.intensity[k] += (target - this.intensity[k]) * dt * 0.7;
-      this.intensity[k] *= 1 - this.wet[k] * dt * 1.5;
+      const ww = this.water[k];
+      this.intensity[k] *= 1 - Math.max(this.wetAbstract[k], ww / (ww + WET_HALF_DEPTH)) * dt * 1.5;
       this.fuel[k] = Math.max(0, f - dt * 0.0065 * (0.4 + this.intensity[k]));
       if (this.intensity[k] < 0.06) {
         this.state[k] = this.fuel[k] < 0.15 ? BURNT : UNBURNED;
@@ -170,7 +231,63 @@ export class FireModel {
     this.writeTexture();
   }
 
-  /** Apply a suppressant drop. Returns fractional intensity reduction inside the footprint. */
+  /** Retardant spread reduction 0..0.85 (SIM: dose-dependent, saturating, never total). */
+  retEff(k: number): number {
+    const s = this.salts[k];
+    return s > 0 ? 0.85 * (1 - Math.exp(-s / RET_HALF_DOSE)) : 0;
+  }
+
+  private evaporate(k: number, dt: number): void {
+    if (this.wetAbstract[k] > 0) this.wetAbstract[k] = Math.max(0, this.wetAbstract[k] - dt * 0.004);
+    const w = this.water[k];
+    if (w > 0) {
+      // SIM: exponential drying (half-life scaled by agent retention); a burning cell boils water off fast.
+      const rate = Math.LN2 / (WATER_HALF_LIFE * this.retain[k]) + (this.state[k] === BURNING ? 0.05 * this.intensity[k] : 0);
+      this.water[k] = w < 0.002 ? 0 : w * Math.exp(-rate * dt);
+    }
+    const c = this.cover[k];
+    if (c > 0) {
+      const half = COVER_HALF_LIFE * Math.max(0.25, this.retain[k] * this.coverWater[k]);
+      this.cover[k] = c < 0.01 ? 0 : c * Math.exp((-Math.LN2 / half) * dt);
+    }
+    const ww = this.water[k];
+    this.wet[k] = Math.max(this.wetAbstract[k], ww / (ww + WET_HALF_DEPTH), this.cover[k] * this.coverWater[k]);
+  }
+
+  /** Knocked-down cell: residual heat decays (faster when wet) or rekindles when hot and dry. */
+  private coolDown(k: number, dt: number): void {
+    this.heat[k] = Math.max(0, this.heat[k] - dt * (0.0015 + 0.008 * this.wet[k]));
+    if (this.heat[k] < 0.05) {
+      this.heat[k] = 0;
+      this.extinguished++;
+      return;
+    }
+    if (this.heat[k] > 0.2 && this.wet[k] < 0.08 && this.fuel[k] > 0.15 && this.r(k, 7) < 0.03 * this.heat[k] * dt) {
+      this.state[k] = BURNING;
+      this.intensity[k] = 0.2;
+      this.heat[k] = 0;
+      this.reignitions++;
+      this.burning.push(k);
+    }
+  }
+
+  /** Mark a cell knocked down by an agent (flames out, heat possibly remaining). */
+  knockDown(k: number, residualHeat: number): void {
+    this.state[k] = UNBURNED;
+    this.intensity[k] = 0;
+    this.heat[k] = Math.max(this.heat[k], residualHeat);
+    this.knockdowns++;
+    this.totalSuppressedCells++;
+    if (residualHeat <= 0) this.extinguished++;
+  }
+
+  /** Remove non-burning cells from the burning list and refresh the texture after edits. */
+  commit(): void {
+    this.burning = this.burning.filter((k) => this.state[k] === BURNING);
+    this.writeTexture();
+  }
+
+  /** Legacy abstract drop (120 L concept): fixed effect over ~radius, not derived from litres. */
   suppress(x: number, z: number, radius: number, strength: number): number {
     const r = Math.ceil(radius / FIRE_CELL) + 1;
     const c = this.cellOf(x, z);
@@ -185,7 +302,8 @@ export class FireModel {
         const k = j * FIRE_N + i;
         const fall = clamp(1 - dd / (radius * 1.3), 0, 1);
         before += this.intensity[k];
-        this.wet[k] = Math.min(1, this.wet[k] + strength * fall);
+        this.wetAbstract[k] = Math.min(1, this.wetAbstract[k] + strength * fall);
+        this.wet[k] = Math.max(this.wet[k], this.wetAbstract[k]);
         if (this.state[k] === BURNING) {
           this.intensity[k] *= 1 - strength * fall * 0.85;
           if (this.intensity[k] < 0.07) {
@@ -227,7 +345,7 @@ export class FireModel {
         const nk = nj * N + ni;
         if (this.state[nk] === BURNT || this.fuel[nk] < 0.08) continue;
         // Spread-rate estimate (m/s), calibrated against the CA in tests/fire.test.ts.
-        const v = 1.35 * (0.35 + 0.65 * this.fuel[nk]) * (0.35 + 0.65 * this.fuel0[nk]) * wf[d] * this.slopeF[k * 8 + d] * (1 - this.wet[nk]);
+        const v = 1.35 * this.spreadMult * (1 - this.retEff(nk)) * (0.35 + 0.65 * this.fuel[nk]) * (0.35 + 0.65 * this.fuel0[nk]) * wf[d] * this.slopeF[k * 8 + d] * (1 - this.wet[nk]);
         if (v < 0.01) continue;
         const nt = tk + (FIRE_CELL * len) / v;
         if (nt < t[nk]) {
@@ -304,7 +422,7 @@ export class FireModel {
       this.state[k] = s[k * 3];
       this.intensity[k] = s[k * 3 + 1] / 255;
       this.fuel[k] = (s[k * 3 + 2] / 255) * this.fuel0[k];
-      this.wet[k] = 0;
+      this.wet[k] = this.wetAbstract[k] = this.water[k] = this.salts[k] = this.heat[k] = this.cover[k] = 0;
       if (this.state[k] === BURNING) this.burning.push(k);
     }
     this.writeTexture();

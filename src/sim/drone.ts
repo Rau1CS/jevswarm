@@ -2,7 +2,7 @@
  * Drone agent: deterministic flight controller + task state machine.
  * Jev never flies drones; it assigns tasks. Everything here is plain code.
  */
-import { DRONE, LAKE } from '../config';
+import { DRONE } from '../config';
 import { angleLerp, clamp } from '../core/math';
 import { heightAt } from '../world/layout';
 import type { Pt } from '../world/layout';
@@ -25,8 +25,27 @@ export interface Task {
   then?: Task;
 }
 
+/** Suppression platform performance for SUPPRESSION-role drones (from the loadout catalogue). */
+export interface SuppressionSpec {
+  capacity: number; // agent units per sortie
+  maxSpeed: number;
+  enduranceMin: number;
+  dischargeSec: number;
+  pumpLps: number;
+}
+
 export interface DroneHooks {
-  onDrop(d: Drone, x: number, z: number): void;
+  /** Release the payload aimed at (x, z). Returns the discharge duration in seconds. */
+  onDrop(d: Drone, x: number, z: number): number;
+  /** Choose a refill station; returns its id. */
+  refillStation(d: Drone): string;
+  /** Take a refill slot (FIFO). False = queued, keep holding. */
+  requestRefill(d: Drone, station: string): boolean;
+  releaseRefill(d: Drone, queuedSec: number): void;
+  refillPos(d: Drone, station: string): Pt;
+  stationPos(station: string): Pt & { dip: boolean };
+  /** Onboard thermal re-aim during the run-in (the planned target may be minutes old). */
+  aimPoint(d: Drone, target: Pt): Pt;
   onDeliver(d: Drone, x: number, z: number): void;
   /** Returns false if the look was inconclusive (drone keeps orbiting and retries). */
   onVerifyComplete(d: Drone, detectionId: string): boolean;
@@ -65,6 +84,11 @@ export class Drone {
   totalDist = 0;
   private orbitA = Math.random() * Math.PI * 2;
   private wp = 0;
+  /** Set by the simulation from the loadout; null = generic airframe. */
+  spec: SuppressionSpec | null = null;
+  station = '';
+  private queueT = 0;
+  private dischargeT = 0;
 
   constructor(public id: string, public index: number, public role: Role, public pad: Pt) {
     this.x = pad.x;
@@ -82,11 +106,24 @@ export class Drone {
   get airborne(): boolean {
     return this.status === 'AIRBORNE' || this.status === 'LINK_LOST';
   }
+  get vmax(): number {
+    return this.role === 'SUPPRESSION' && this.spec ? this.spec.maxSpeed : DRONE.maxSpeed;
+  }
+  get enduranceMin(): number {
+    return this.role === 'SUPPRESSION' && this.spec ? this.spec.enduranceMin : DRONE.enduranceMin;
+  }
   get available(): boolean {
     return (this.status === 'AIRBORNE' || this.status === 'LANDED') && this.battery > 0.28 && this.launchAt !== Infinity;
   }
 
+  /** Called when a drone abandons a refill slot/queue because it was reassigned. */
+  releaseHook: ((d: Drone) => void) | null = null;
+
   assign(task: Task): void {
+    if (this.station) {
+      this.releaseHook?.(this);
+      this.station = '';
+    }
     this.prevLabel = this.task.label;
     this.task = task;
     this.phase = 0;
@@ -127,7 +164,7 @@ export class Drone {
     }
     // Battery (SIM): drain scaled by speed and payload.
     const load = 1 + this.speed / 60 + (this.role === 'SUPPRESSION' ? this.payload * 0.18 : 0);
-    this.battery = Math.max(0, this.battery - (dt / (DRONE.enduranceMin * 60)) * load);
+    this.battery = Math.max(0, this.battery - (dt / (this.enduranceMin * 60)) * load);
     if (this.battery < 0.18 && this.task.kind !== 'RTB' && this.task.kind !== 'SWAP') {
       this.assign({ kind: 'RTB', target: { ...this.pad }, label: 'RTB · BATTERY' });
     }
@@ -222,36 +259,73 @@ export class Drone {
     }
   }
 
+  /**
+   * Delivery cycle: 0 approach upwind · 1 descend · 2 run-in · 3 discharge hover ·
+   * 4 climb out · 5 transit to refill · 6 queue + refill (+ battery swap at a station).
+   */
   private suppress(dt: number, hooks: DroneHooks): void {
     const tk = this.task;
     const ph = this.phase;
-    if (this.payload <= 0.01 && ph < 4) {
-      this.phase = 4;
+    if (this.payload <= 0.01 && ph < 3) {
+      this.phase = 5;
       this.phaseT = 0;
     }
     if (ph === 0) {
-      // Approach from the upwind side at cruise altitude.
       const a = this.approachPoint(tk.target);
-      this.flyTo(a.x, a.z, 60, dt, DRONE.maxSpeed, () => this.next(), 20);
+      this.flyTo(a.x, a.z, 60, dt, this.vmax, () => this.next(), 20);
     } else if (ph === 1) {
       this.hover(this.approachPoint(tk.target).x, this.approachPoint(tk.target).z, DRONE.suppressAGL, dt);
       if (this.agl < DRONE.suppressAGL + 6) this.next();
     } else if (ph === 2) {
+      if (this.phaseT - dt <= 0 || Math.floor(this.phaseT) !== Math.floor(this.phaseT - dt)) tk.target = hooks.aimPoint(this, tk.target);
       this.flyTo(tk.target.x, tk.target.z, DRONE.suppressAGL, dt, 9, () => {
-        hooks.onDrop(this, tk.target.x, tk.target.z);
+        this.dischargeT = hooks.onDrop(this, tk.target.x, tk.target.z);
         this.payload = 0;
         this.next();
       }, 8);
     } else if (ph === 3) {
-      this.flyTo(tk.target.x, tk.target.z, 70, dt, 8, () => {}, 10);
-      if (this.phaseT > 3) this.next();
+      // Directed discharge takes time: hold a low hover over the target.
+      this.hover(tk.target.x, tk.target.z, DRONE.suppressAGL, dt);
+      if (this.phaseT >= this.dischargeT) this.next();
     } else if (ph === 4) {
-      // Refill at the water source (SIM: hover-dip refill).
-      this.flyTo(LAKE.x, LAKE.z, 8, dt, DRONE.maxSpeed, () => this.next(), 12);
+      this.flyTo(tk.target.x, tk.target.z, 70, dt, 8, () => {}, 10);
+      if (this.phaseT > 3) {
+        this.releaseHook?.(this); // never hold a stale slot if the cycle was interrupted
+        this.station = hooks.refillStation(this);
+        this.next();
+      }
     } else if (ph === 5) {
-      this.hover(LAKE.x, LAKE.z, 5, dt);
-      this.payload = Math.min(1, this.payload + dt / 8);
-      if (this.payload >= 1) {
+      if (!this.station) this.station = hooks.refillStation(this);
+      const s = hooks.stationPos(this.station);
+      this.flyTo(s.x, s.z, 40, dt, this.vmax, () => this.next(), 60);
+      this.queueT = 0;
+    } else if (ph === 6) {
+      if (!this.station) {
+        this.phase = 5;
+        return;
+      }
+      const s = hooks.stationPos(this.station);
+      if (!hooks.requestRefill(this, this.station)) {
+        this.queueT += dt;
+        this.orbit(s.x, s.z, 70, 40, dt, 7);
+        this.phaseT = 0;
+        return;
+      }
+      const p = hooks.refillPos(this, this.station);
+      this.hover(p.x, p.z, s.dip ? 5 : 1.5, dt);
+      if (Math.hypot(p.x - this.x, p.z - this.z) > 6) {
+        this.phaseT = 0;
+        return;
+      }
+      const cap = this.spec?.capacity ?? 1;
+      const rate = this.spec ? this.spec.pumpLps / Math.max(0.05, cap) : 1 / 8;
+      this.payload = Math.min(1, this.payload + dt * rate);
+      // Battery swap while landed at a station (not during a lake dip).
+      const swap = !s.dip && this.battery < 0.6;
+      if (this.payload >= 1 && (!swap || this.phaseT >= DRONE.batterySwapSec)) {
+        if (swap) this.battery = 1;
+        hooks.releaseRefill(this, this.queueT);
+        this.station = '';
         this.phase = 0;
         this.phaseT = 0;
       }
@@ -330,9 +404,10 @@ export class Drone {
     this.vz += az * dt;
     this.vy += clamp(ay, -6, 6) * dt;
     const sp = Math.hypot(this.vx, this.vz);
-    if (sp > DRONE.maxSpeed) {
-      this.vx *= DRONE.maxSpeed / sp;
-      this.vz *= DRONE.maxSpeed / sp;
+    const vmax = this.vmax;
+    if (sp > vmax) {
+      this.vx *= vmax / sp;
+      this.vz *= vmax / sp;
     }
     this.x += this.vx * dt;
     this.z += this.vz * dt;
