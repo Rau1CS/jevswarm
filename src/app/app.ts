@@ -29,6 +29,7 @@ import { buildLabels } from './labelSpecs';
 import { demoScenario, setupScenario } from './scenarios';
 import { LoadoutPanel } from '../ui/loadoutPanel';
 import { SupOverlay } from '../ui/labPanel';
+import { TriageConsole } from '../ui/triageConsole';
 import { isAbstract } from '../sim/loadout/catalogue';
 
 type Mode = 'MENU' | 'DEMO' | 'FREE' | 'RESULTS';
@@ -53,6 +54,7 @@ export class App {
   recorder = new Recorder();
   loadoutPanel = new LoadoutPanel();
   supOverlay = new SupOverlay();
+  triage = new TriageConsole();
   director: Director | null = null;
   scheduler: EventScheduler | null = null;
   mode: Mode = 'MENU';
@@ -105,6 +107,7 @@ export class App {
     $('btn-demo').addEventListener('click', () => this.startDemo());
     $('btn-free').addEventListener('click', () => this.startFree());
     $('btn-tech2').addEventListener('click', () => this.openTech());
+    $('btn-triage').addEventListener('click', () => void this.triage.open());
     this.loadoutPanel.onLab = () => this.supOverlay.openLab(this.loadoutPanel.setup, this.droneCount);
     this.loadoutPanel.onCatalogue = () => this.supOverlay.openCatalogue();
     window.addEventListener('keydown', (e) => {
@@ -114,6 +117,7 @@ export class App {
       if (e.key === '3') this.setView('THERMAL');
       if (e.key === 'Escape') {
         this.supOverlay.close();
+        this.triage.close();
         this.select(null);
       }
     });

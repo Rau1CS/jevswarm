@@ -323,3 +323,71 @@ button, input, select { font: inherit; color: inherit; }
 .res-grid .s { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 2px; }
 .res-note { padding: 10px 22px 14px; font-size: 11px; color: var(--dim); }
 @media (max-width: 1100px) { .res-card.sup { display: none; } }
+
+/* ---------- message triage console ---------- */
+#triage { position: fixed; inset: 0; z-index: 45; background: rgba(4, 6, 8, 0.94); backdrop-filter: blur(6px); display: flex; flex-direction: column; padding: 14px 18px; gap: 10px; font-size: 13px; }
+.tc-top { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.tc-title { font-size: 20px; font-weight: 700; letter-spacing: 0.22em; }
+.tc-title span { color: var(--jev); }
+.tc-title small { display: block; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.08em; color: var(--muted); font-weight: 400; margin-top: 3px; }
+.tc-ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.tc-ctl select, .tc-ctl label { background: #0b1014; border: 1px solid var(--line-strong); padding: 6px 8px; font-size: 11.5px; }
+.tc-ctl label { display: flex; gap: 6px; align-items: center; color: var(--muted); letter-spacing: 0.12em; font-size: 10px; }
+.tc-ctl label select { border: none; padding: 0; }
+.tc-ctl button { border: 1px solid var(--line-strong); background: none; padding: 7px 16px; font-weight: 700; letter-spacing: 0.16em; cursor: pointer; font-size: 11.5px; }
+.tc-ctl button.primary { background: var(--jev); color: #0a0f12; border-color: var(--jev); min-width: 150px; }
+.tc-notice { border-left: 2px solid var(--amber); padding: 6px 10px; color: #e7c79a; background: rgba(255, 179, 71, 0.06); }
+.tc-stats { display: grid; grid-template-columns: repeat(6, 1fr); border: 1px solid var(--line); }
+.tc-stats > div { padding: 8px 12px; border-right: 1px solid var(--line); }
+.tc-stats .k { font-size: 9px; letter-spacing: 0.16em; color: var(--muted); font-weight: 600; }
+.tc-stats .v { font-family: var(--mono); font-size: 19px; margin-top: 2px; }
+.tc-stats .s { font-family: var(--mono); font-size: 9.5px; color: var(--dim); margin-top: 1px; }
+.tc-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.8fr) minmax(260px, 0.8fr); gap: 12px; }
+.tc-main > section { min-height: 0; overflow-y: auto; }
+.tc-main h3 { font-size: 11px; letter-spacing: 0.2em; color: var(--jev); margin: 4px 0 8px; }
+.tc-main h3 small { color: var(--dim); letter-spacing: 0.04em; font-weight: 400; margin-left: 4px; font-family: var(--mono); font-size: 9.5px; }
+.tc-empty { color: var(--muted); padding: 30px; text-align: center; border: 1px dashed var(--line); }
+.tc-card { border: 1px solid var(--line); border-left: 3px solid var(--jev); padding: 8px 10px; margin-bottom: 8px; background: rgba(12, 17, 21, 0.8); animation: fadein 0.4s; }
+.tc-card.pending { border-left-color: var(--dim); opacity: 0.7; }
+.tc-card.review { border-left-color: var(--amber); }
+.tc-card.error { border-left-color: var(--crit); }
+.tc-card p { margin: 5px 0 7px; line-height: 1.4; color: #dfe7ec; overflow-wrap: anywhere; }
+.tc-meta { display: flex; gap: 10px; font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em; }
+.tc-cat { color: var(--jev); font-weight: 600; }
+.tc-lane-tag { color: var(--muted); }
+.review .tc-lane-tag { color: var(--amber); }
+.tc-ms { margin-left: auto; color: var(--dim); }
+.tc-bars { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 3px 10px; }
+.tc-bar { display: grid; grid-template-columns: 78px 1fr 26px; align-items: center; gap: 6px; font-family: var(--mono); font-size: 9.5px; color: var(--muted); }
+.tc-bar i { display: block; height: 5px; background: rgba(169, 214, 226, 0.35); position: relative; }
+.tc-bar.yes { color: var(--text); }
+.tc-bar.yes i { background: var(--jev); }
+.tc-bar.na i { background: none; }
+.tc-bar b { font-weight: 500; text-align: right; }
+.tc-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tc-human { margin-top: 5px; font-family: var(--mono); font-size: 9.5px; color: var(--dim); }
+.tc-human.agree::before { content: '✓ '; color: var(--ok); }
+.tc-human.differ::before { content: '≠ '; color: var(--amber); }
+.tc-qi { border: 1px solid var(--line); padding: 7px 9px; margin-bottom: 6px; cursor: pointer; }
+.tc-qi.on { border-color: var(--jev); background: rgba(169, 214, 226, 0.06); }
+.tc-qn { font-size: 9.5px; letter-spacing: 0.16em; color: var(--jev); font-weight: 600; }
+.tc-qt { font-size: 12px; color: #c3cdd3; margin-top: 2px; line-height: 1.35; }
+.tc-qa { display: flex; gap: 6px; margin-top: 6px; }
+.tc-qa button, .tc-sugg button { background: none; border: 1px solid var(--line-strong); font-size: 10px; padding: 3px 8px; cursor: pointer; color: var(--muted); letter-spacing: 0.08em; }
+.tc-add { display: flex; gap: 6px; margin-top: 10px; }
+.tc-add input { flex: 1; background: #0b1014; border: 1px solid var(--line-strong); padding: 7px 9px; font-size: 12.5px; }
+.tc-add button { background: var(--jev); color: #0a0f12; border: none; padding: 0 14px; font-weight: 700; letter-spacing: 0.14em; cursor: pointer; }
+.tc-hint { font-size: 11px; color: var(--dim); margin: 6px 0; }
+.tc-sugg { display: flex; flex-wrap: wrap; gap: 5px; }
+.tc-sugg button { text-align: left; letter-spacing: 0; font-size: 11px; }
+.tc-route input[type=range] { width: 100%; accent-color: var(--jev); margin-bottom: 8px; }
+.tc-lanes { display: grid; gap: 4px; margin-bottom: 14px; }
+.tc-lane { display: flex; justify-content: space-between; background: none; border: 1px solid var(--line); padding: 6px 9px; cursor: pointer; font-size: 12px; }
+.tc-lane b { font-family: var(--mono); font-weight: 500; }
+.tc-lane.rev { border-color: rgba(255, 179, 71, 0.5); color: #ffd39a; }
+.tc-lane.on { border-color: var(--jev); background: rgba(169, 214, 226, 0.08); }
+.tc-ib { display: grid; grid-template-columns: 38px 1fr; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 11.5px; line-height: 1.35; }
+.tc-ib b { font-family: var(--mono); color: var(--jev); font-weight: 500; }
+@media (max-width: 1100px) { .tc-main { grid-template-columns: 1fr; overflow-y: auto; } .tc-main > section { overflow: visible; } .tc-stats { grid-template-columns: repeat(3, 1fr); } }
+.tc-route { overflow-x: hidden; }
+.tc-ib span { overflow-wrap: anywhere; }
