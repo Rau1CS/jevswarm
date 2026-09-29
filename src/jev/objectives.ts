@@ -13,6 +13,7 @@ import { areaSectors, relayPointFor, searchPattern } from './planner';
 import { isAbstract, type Loadout } from '../sim/loadout/catalogue';
 import type { Policy } from '../sim/simulation';
 import { suppressionObjectives } from './suppressionObjectives';
+import type { FireReport, Incident } from '../calls/callCenter';
 import type { Directive, Objective, Slot } from './types';
 
 export interface CorridorState {
@@ -33,6 +34,9 @@ export interface CoordView {
   confirmedCiv(detId: string): Civilian | undefined;
   loadout?: Loadout;
   policy?: Policy;
+  /** Emergency-call facts for a detection created from a call. */
+  callInfo?(detId: string): { incident: Incident; calls: number } | undefined;
+  fireReports?: FireReport[];
 }
 
 export const fmtMin = (s: number) => (Number.isFinite(s) ? `${(s / 60).toFixed(1)} min` : 'not predicted within 15 min');
@@ -91,17 +95,25 @@ export function buildObjectives(v: CoordView): Objective[] {
     const cor = v.corridors.get(det.id);
     const slots: Slot[] = [];
     let facts: string;
+    const ci = v.callInfo?.(det.id);
+    const pkg = ci?.incident.response;
+    const callFacts = ci ? ` Reported by ${ci.calls} emergency call${ci.calls > 1 ? 's' : ''}${ci.incident.cannotLeave ? '; the caller says someone cannot get out on their own' : ''}.` : '';
     if (det.status === 'POSSIBLE') {
       slots.push(slot('VERIFY', 'SCOUT', `VERIFY ${det.sector}`, p));
-      if (arr < 420 && !cor?.flown) slots.push(slot('CORRIDOR', 'SCOUT', `EVAC ROUTE ${det.sector}`, p));
-      facts = `Unverified thermal signature that may be a person in ${det.sector}, thermal confidence ${det.conf.toFixed(2)}. Predicted fire arrival there: ${fmtMin(arr)}.`;
+      const routeNow = pkg === 'VERIFY_ROUTE' || pkg === 'FULL_RESCUE';
+      if ((arr < 420 || routeNow) && !cor?.flown) slots.push(slot('CORRIDOR', 'SCOUT', `EVAC ROUTE ${det.sector}`, p));
+      if (pkg === 'FULL_RESCUE' && !ci?.incident.supplied) slots.push(slot('DELIVER', 'LOGISTICS', `SUPPLY DROP ${det.sector}`, p));
+      facts = ci
+        ? `Possible person in ${det.sector} reported by phone, not yet seen by drones.${callFacts} Predicted fire arrival there: ${fmtMin(arr)}.`
+        : `Unverified thermal signature that may be a person in ${det.sector}, thermal confidence ${det.conf.toFixed(2)}. Predicted fire arrival there: ${fmtMin(arr)}.`;
     } else {
       if (!civ?.supplied) slots.push(slot('DELIVER', 'LOGISTICS', `SUPPLY DROP ${det.sector}`, p));
       if (!cor?.flown) slots.push(slot('CORRIDOR', 'SCOUT', `EVAC ROUTE ${det.sector}`, p));
       else if (cor.route) slots.push(slot('GUIDE', 'SCOUT', `GUIDE ${det.id}`, p));
-      facts = `Confirmed person in ${det.sector}${civ?.behavior === 'TRAPPED' ? ', not moving, apparently trapped' : ''}. Predicted fire arrival: ${fmtMin(arr)}. ${cor?.flown ? 'A safe corridor has been found.' : 'No safe route identified yet.'}`;
+      facts = `Confirmed person in ${det.sector}${civ?.behavior === 'TRAPPED' ? ', not moving, apparently trapped' : ''}. Predicted fire arrival: ${fmtMin(arr)}. ${cor?.flown ? 'A safe corridor has been found.' : 'No safe route identified yet.'}${callFacts}`;
     }
-    out.push({ id: `CIV_${det.id}`, kind: det.status === 'POSSIBLE' ? 'VERIFY' : 'RESCUE', sector: det.sector, x: p.x, z: p.z, facts, arrivalSec: arr, detectionId: det.id, slots, boost: areaBoost(det.sector) });
+    const callBoost = ci ? Math.min(1.2, 0.4 * ci.calls) + (ci.incident.cannotLeave ? 0.5 : 0) : 0;
+    out.push({ id: `CIV_${det.id}`, kind: det.status === 'POSSIBLE' ? 'VERIFY' : 'RESCUE', sector: det.sector, x: p.x, z: p.z, facts, arrivalSec: arr, detectionId: det.id, slots, boost: areaBoost(det.sector) + callBoost });
     assets.push({ p, label: det.status === 'CONFIRMED' ? `confirmed person ${det.id}` : `possible person ${det.id}`, detId: det.id });
   }
 
@@ -155,6 +167,17 @@ export function buildObjectives(v: CoordView): Objective[] {
   if (v.loadout && !isAbstract(v.loadout) && (v.policy ?? 'COORDINATOR') === 'COORDINATOR') {
     const nSup = v.drones.filter((d) => d.role === 'SUPPRESSION' && d.status !== 'FAILED').length;
     out.push(...suppressionObjectives(v, nSup, (x, z) => arrivalNear(v, x, z)));
+  }
+
+  // Fire reports phoned in: send a drone to look (code creates the objective; Jev weighs it).
+  for (const r of v.fireReports ?? []) {
+    const sec = sectorOf(r.x, r.z);
+    out.push({
+      id: r.id, kind: 'MONITOR', sector: sec, x: r.x, z: r.z, arrivalSec: arrivalNear(v, r.x, r.z),
+      slots: [slot('MONITOR', 'SCOUT', `CHECK FIRE REPORT ${sec}`, { x: r.x, z: r.z })],
+      facts: `A caller reported new fire near ${r.placeName} (${sec}); a drone should check and map it.`,
+      boost: 0.6,
+    });
   }
 
   // Fire mapping.

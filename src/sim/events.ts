@@ -105,8 +105,8 @@ export function newCivilian(sim: Simulation): void {
   const x = c.x + w.x * 280 + sim.rng.range(-60, 60), z = c.z + w.z * 280 + sim.rng.range(-60, 60);
   const civ = { ...sim.civilians[0], id: `P${String(sim.civilians.length + 1).padStart(2, '0')}`, x, z, behavior: 'WANDER' as const, indoor: false, path: [], pathI: 0, confirmed: false, hero: false, supplied: false, exposed: false, spawnedAt: sim.t };
   sim.civilians.push(civ);
-  sim.sensors.create(x + sim.rng.range(-25, 25), z + sim.rng.range(-25, 25), 0.5, civ.id, 'CALL', sim.t, sim.sensorEvents);
-  sim.banner('NEW CIVILIAN DETECTED', [`hiker reported · sector ${sectorOf(x, z)}`, 'position uncertain ±25 m'], 'warn');
+  // Someone phones it in: the call goes through triage (Jev) like any other.
+  sim.calls.receive(sim.callGen.personCall(sim.t, civ, sim.rng.chance(0.4)));
 }
 
 export function fireJump(sim: Simulation): void {

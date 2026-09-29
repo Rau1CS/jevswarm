@@ -91,7 +91,7 @@ export class JevCoordinator {
           this.apply(j, buildObjectives(view), view, reason);
         })
         .catch((e: unknown) => {
-          this.ev.log({ t: view.t, title: 'JEV UNAVAILABLE', lines: [String(e instanceof Error ? e.message : e).slice(0, 60), 'fallback coordinator engaged'], level: 'warn' });
+          this.ev.log({ t: view.t, title: 'JEV UNAVAILABLE', lines: [String(e instanceof Error ? e.message : e).slice(0, 60), 'fallback coordinator engaged'], level: 'warn', by: 'CODE' });
           if (!this.client.connected) this.mode = 'SIM';
           this.apply(fallbackJudge(objs, ctx), objs, view, reason);
         })
@@ -176,12 +176,12 @@ export class JevCoordinator {
     if (changes.length) {
       const lines = changes.slice(0, 6).map((c) => `${c.droneId} → ${c.to.toLowerCase()}`);
       if (changes.length > 6) lines.push(`+${changes.length - 6} more`);
-      this.ev.log({ t: view.t, title: `${src} REPLAN`, lines: [`trigger: ${reason}`, ...lines], level: 'jev' });
+      this.ev.log({ t: view.t, title: `${src} REPLAN`, lines: [`trigger: ${reason}`, ...lines, 'priorities: ' + (j.source === 'JEV' ? 'Jev' : 'rules') + ' · allocation & flight: code'], level: 'jev', by: j.source === 'JEV' ? 'JEV' : 'CODE' });
     }
     if (pri && pri.id !== this.lastPriority) {
       this.lastPriority = pri.id;
       const u = j.urgency[pri.id] ?? 0;
-      this.ev.log({ t: view.t, title: 'PRIORITY', lines: [`${pri.kind.toLowerCase()} ${pri.sector}`, `urgency ${u.toFixed(1)}/4${j.source === 'JEV' ? ` · conf ${j.priorityConf.toFixed(2)}` : ''}`], level: 'info' });
+      this.ev.log({ t: view.t, title: 'PRIORITY', lines: [`${pri.kind.toLowerCase()} ${pri.sector}`, `urgency ${u.toFixed(1)}/4${j.source === 'JEV' ? ` · conf ${j.priorityConf.toFixed(2)}` : ''}`], level: 'info', by: j.source === 'JEV' ? 'JEV' : 'CODE' });
     }
     const fresh = objs
       .filter((o) => (o.kind === 'VERIFY' || o.kind === 'RESCUE') && (j.urgency[o.id] ?? 0) >= 3.4 && !this.escalated.has(o.id))
@@ -190,7 +190,7 @@ export class JevCoordinator {
       fresh.forEach((o) => this.escalated.add(o.id));
       const o = fresh.find((q) => q.id === this.featured) ?? fresh[0];
       const sectors = [...new Set(fresh.map((q) => q.sector))];
-      this.ev.log({ t: view.t, title: 'PRIORITY ESCALATED', lines: [`${sectors.join(', ')} → CRITICAL`, `fire arrival ${fmtMin(o.arrivalSec)}`], level: 'crit' });
+      this.ev.log({ t: view.t, title: 'PRIORITY ESCALATED', lines: [`${sectors.join(', ')} → CRITICAL`, `fire arrival ${fmtMin(o.arrivalSec)}`], level: 'crit', by: j.source === 'JEV' ? 'JEV' : 'CODE' });
       // Full-screen callout at most every 25 s so it stays meaningful.
       if (this.calloutsEnabled && view.t - this.lastBannerT > 25) {
         this.lastBannerT = view.t;
@@ -235,7 +235,7 @@ export class JevCoordinator {
       return d;
     }
     this.directive = d.intent === 'RESUME' ? null : d;
-    this.ev.log({ t, title: 'COMMANDER DIRECTIVE', lines: [`"${text.slice(0, 48)}"`, `→ ${describeDirective(d)}`, `parsed by ${d.source === 'JEV' ? 'Jev' : 'keyword fallback'} · conf ${d.confidence.toFixed(2)}`], level: 'ok' });
+    this.ev.log({ t, title: 'COMMANDER DIRECTIVE', lines: [`"${text.slice(0, 48)}"`, `→ ${describeDirective(d)}`, `parsed by ${d.source === 'JEV' ? 'Jev' : 'keyword fallback'} · conf ${d.confidence.toFixed(2)}`], level: 'ok', by: 'HUMAN' });
     this.trigger('commander directive');
     return d;
   }

@@ -33,6 +33,7 @@ export class Director {
   userCamera = false;
   private heroDet: string | null = null;
   private lastCalloutT = -1;
+  private heroCall: string | null = null;
   finished = false;
 
   constructor(private h: DirectorHost) {
@@ -80,6 +81,24 @@ export class Director {
         h.rig.frame(f.x + 80, f.z, 680, 4, 1.25);
         h.caption('FIRE FRONT MAPPING · THERMAL SEARCH UNDERWAY');
       }) },
+      { at: 38, run: () => {
+        // A family member phones in about the trapped grandmother: Jev triages the call.
+        const call = sim.callGen.personCall(sim.t, hero(), true, 'WEST_LANE_END');
+        this.heroCall = call.id;
+        sim.calls.receive(call);
+        h.caption('EMERGENCY CALL · JEV TRIAGES IT IN ONE REQUEST');
+        if (!this.userCamera) h.rig.frame(hero().x, hero().z, 520, 2.8, -1.0);
+      } },
+      { at: 44, run: () => {
+        // Human in the loop: the commander approves the rescue package (scripted in the demo).
+        const rec = sim.calls.records.find((r) => r.call.id === this.heroCall);
+        if (rec && (rec.status === 'AWAITING_APPROVAL' || rec.status === 'REVIEW')) {
+          sim.calls.approve(rec.call.id, rec.status === 'REVIEW' ? 'FULL_RESCUE' : undefined, rec.triage?.placeId ? undefined : 'WEST_LANE_END');
+        }
+        const det = sim.sensors.detections.find((d) => d.truthCivId === hero().id && d.status === 'POSSIBLE');
+        if (det) det.holdUntil = sim.t + (113 - this.t) * sim.timeScale;
+        h.caption('COMMANDER APPROVES · RESCUE PACKAGE DISPATCHED');
+      } },
       { at: 48, run: () => {
         // Hero beat: a scout picks up a thermal signature near the western houses.
         const hc = hero();
@@ -88,14 +107,20 @@ export class Director {
           const scout = sim.drones.filter((d) => d.role === 'SCOUT' && d.airborne).sort((a, b) => dist2(a.x, a.z, hc.x, hc.z) - dist2(b.x, b.z, hc.x, hc.z))[0];
           det = sim.sensors.create(hc.x + 5, hc.z - 4, 0.64, hc.id, scout?.id ?? 'D12', sim.t, sim.sensorEvents);
         }
-        det.conf = 0.64;
+        det.conf = Math.max(det.conf, 0.64);
         // Curated: heavy smoke keeps verification inconclusive until ~1:53.
         det.holdUntil = sim.t + (113 - this.t) * sim.timeScale;
         this.heroDet = det.id;
         sim.coordinator.featured = `CIV_${det.id}`;
-        h.callout('THERMAL SIGNATURE', [`CONFIDENCE ${Math.round(det.conf * 100)}% · SECTOR ${det.sector}`, `${det.by} → POSSIBLE HUMAN`]);
+        h.callout(det.by === 'CALL' ? 'CALL LOCATION · THERMAL CHECK' : 'THERMAL SIGNATURE', det.by === 'CALL'
+          ? [`REPORTED BY PHONE · SECTOR ${det.sector}`, 'SCOUTS EN ROUTE TO VERIFY']
+          : [`CONFIDENCE ${Math.round(det.conf * 100)}% · SECTOR ${det.sector}`, `${det.by} → POSSIBLE HUMAN`]);
         if (!this.userCamera) h.rig.frame(hc.x, hc.z, 360, 3.2, -1.2);
         h.caption('POSSIBLE HUMAN DETECTED');
+      } },
+      { at: 58, run: () => {
+        // Not every call needs aircraft: an information request is answered automatically.
+        sim.calls.receive(sim.callGen.infoCall(sim.t));
       } },
       { at: 64, run: () => {
         // Several more signatures in the village.
@@ -144,6 +169,11 @@ export class Director {
           h.rig.followDrone(v, 'CHASE');
         }
         h.caption('VERIFYING · LOW ORBIT, RGB + THERMAL');
+      } },
+      { at: 98, run: () => {
+        // A second caller about the same house: recognised as a repeat, merged, priority raised.
+        const orig = sim.calls.records.find((r) => r.call.id === this.heroCall);
+        if (orig) sim.calls.receive(sim.callGen.duplicateOf(sim.t, orig.call));
       } },
       { at: 118, run: () => {
         const det = heroDetObj();

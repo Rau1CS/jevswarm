@@ -30,6 +30,7 @@ import { demoScenario, setupScenario } from './scenarios';
 import { LoadoutPanel } from '../ui/loadoutPanel';
 import { SupOverlay } from '../ui/labPanel';
 import { TriageConsole } from '../ui/triageConsole';
+import { CallsPanel } from '../ui/callsPanel';
 import { isAbstract } from '../sim/loadout/catalogue';
 
 type Mode = 'MENU' | 'DEMO' | 'FREE' | 'RESULTS';
@@ -55,6 +56,7 @@ export class App {
   loadoutPanel = new LoadoutPanel();
   supOverlay = new SupOverlay();
   triage = new TriageConsole();
+  callsPanel = new CallsPanel();
   director: Director | null = null;
   scheduler: EventScheduler | null = null;
   mode: Mode = 'MENU';
@@ -101,6 +103,11 @@ export class App {
     this.newSim(demoScenario(this.droneCount));
     this.buildStatic();
     this.bindPointer();
+    this.callsPanel.onFocus = (x, z) => {
+      if (this.director) this.director.userCamera = true;
+      this.rig.release();
+      this.rig.frame(x, z, 420, 2.2);
+    };
     this.rig.onUserTakeover = () => {
       if (this.director) this.director.userCamera = true;
     };
@@ -144,6 +151,8 @@ export class App {
     if (this.world) this.world.fireTex.image.data = this.sim.fire.tex;
     this.recorder = new Recorder();
     this.hud.agentUnit = this.sim.lo.agent.unit;
+    this.callsPanel.bind(this.sim.calls);
+    this.sim.calls.onChange = () => this.callsPanel.render();
     this.drones.setSuppressionAirframe(this.sim.lo.platform.airframe);
     this.paths.clear();
     this.labels.clear();
@@ -218,6 +227,7 @@ export class App {
     this.sim.timeScale = 2;
     (document.getElementById('time-scale') as HTMLSelectElement).value = '2';
     this.scheduler = null;
+    this.callsPanel.scripted = true;
     this.hud.show(false);
     this.director = new Director({
       sim: this.sim,
@@ -251,9 +261,11 @@ export class App {
   async startFree(): Promise<void> {
     await this.prepare(setupScenario(this.droneCount, this.loadoutPanel.setup), 'FREE');
     this.director = null;
+    this.callsPanel.scripted = false;
     this.hud.show(true);
     this.hud.caption(null);
     this.scheduler = new EventScheduler(new Rng(this.sim.opts.seed + 9), 6);
+    this.sim.autoCalls = true; // random emergency calls arrive and are triaged
     this.sim.launchAll(this.sim.t + 2, 0.3);
     this.rig.frame(BASE_POS.x + 60, BASE_POS.z - 60, 520, 2.5, -2.3);
   }
@@ -468,6 +480,7 @@ export class App {
     if (this.hudAcc > 0.2) {
       this.hudAcc = 0;
       this.hud.update(sim, this.selected);
+      this.callsPanel.render();
       const w = sim.fire.wind;
       this.hud.setWind(w.fromDeg, w.speed, this.now < this.windShiftUntil);
       this.audioLevels();

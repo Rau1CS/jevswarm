@@ -75,4 +75,6 @@ export interface LogEntry {
   title: string;
   lines: string[];
   level: 'info' | 'warn' | 'crit' | 'jev' | 'ok';
+  /** Which layer made this decision: Jev judgment, deterministic code, or a human. Default CODE. */
+  by?: 'JEV' | 'CODE' | 'HUMAN';
 }

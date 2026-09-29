@@ -108,7 +108,8 @@ export class Hud {
   addLog(e: LogEntry): void {
     const div = document.createElement('div');
     div.className = `ev ${e.level}`;
-    div.innerHTML = `<div class="ts">${fmtClock(e.t)}</div><div class="ti">${esc(e.title)}</div>${e.lines.map((l) => `<div class="ln">${esc(l)}</div>`).join('')}`;
+    const by = e.by ?? 'CODE';
+    div.innerHTML = `<div class="ts">${fmtClock(e.t)}<span class="by by-${by.toLowerCase()}">${by}</span></div><div class="ti">${esc(e.title)}</div>${e.lines.map((l) => `<div class="ln">${esc(l)}</div>`).join('')}`;
     this.stream.prepend(div);
     while (this.stream.children.length > 120) this.stream.lastChild!.remove();
     this.count++;

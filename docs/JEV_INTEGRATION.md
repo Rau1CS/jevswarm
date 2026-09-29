@@ -7,15 +7,81 @@ Contract: [docs.typesafe.ai/api](https://docs.typesafe.ai/api) — `POST /v1/sys
 
 ## Division of labour
 
-| Deterministic code | Jev |
-| --- | --- |
-| Fire spread + arrival prediction, flight control, separation, terrain following | Which objective is the top priority right now (Choice) |
-| Sensors, detections, verification, coverage | How urgent each objective is (Score, 5 levels) |
-| Candidate objectives from *observable* state | Parsing commander commands into a typed directive (Choices + Noul) |
-| Allocation (capability, distance, battery, stickiness), payload swaps, relays, corridors | — |
+Each decision in the app's decision stream is tagged **JEV**, **CODE** or **HUMAN**.
 
-Jev never flies a drone, and never sees ground truth: civilians enter the state only as
-detections, and only confirmed people contribute position facts.
+| Deterministic code | Jev | Human |
+| --- | --- | --- |
+| Fire spread + arrival prediction, wind response, flight control, separation, terrain following | **Emergency-call triage** (one request per call, below) | Approves large (≥ 3 aircraft) or uncertain life-safety dispatches |
+| Sensors, detections, verification, coverage | Which objective is the top priority right now (Choice) | Listens back to unclear calls and sets their location |
+| Candidate objectives from *observable* state; the dispatch policy over Jev's answers | How urgent each objective is (Score, 5 levels) | Plain-language orders (parsed by Jev) |
+| Allocation (capability, distance, battery, stickiness), payload swaps, relays, corridors, refills | Parsing commander commands into a typed directive | — |
+
+**Why this split.**
+
+- Anything computable exactly stays in code: physics, geometry, scheduling, flight.
+- Jev handles the step where input is messy human language and a fast, calibrated judgment is needed.
+- The benchmark in [research/triage](../research/triage/README.md) shows Jev beating keyword
+  rules, local models and a classifier trained on past disasters at exactly that step.
+
+**What Jev never gets.**
+
+- It never flies a drone.
+- It never sees ground truth. Civilians enter the state only as detections or call transcripts,
+  and only confirmed people contribute position facts.
+
+## Emergency-call triage (one fan-out request per call)
+
+`src/calls/`. Calls are generated from hidden truth (`generator.ts`):
+
+- people in danger, some of whom cannot leave on their own
+- repeat calls
+- fire sightings
+- information requests
+- non-emergencies
+- garbled calls
+
+Each call goes to Jev once, with `state = { transcript, local_places, open_incidents }` and six
+questions:
+
+| id | type | question |
+| --- | --- | --- |
+| `kind` | Choice | person in danger / fire report / info request / not an emergency / unclear |
+| `urgency` | Score (5) | life risk right now |
+| `place` | Choice | which **known** place (gazetteer) or `UNKNOWN`. Code never lets Jev invent a location |
+| `cannot_leave` | Noul | is anyone unable to get out on their own? |
+| `duplicate` | Choice | one of the open incidents, or `NEW` |
+| `response` | Choice | a fixed response package code can execute (verify · verify + route · full rescue · check fire · reply · human) |
+
+**Dispatch policy** (`callCenter.ts`, code, thresholds in `POLICY`):
+
+| Condition | Action |
+| --- | --- |
+| Confident info or non-emergency | Automatic reply |
+| Confident repeat | Merge into the open incident and raise its priority |
+| Unclear, or place unknown | Operator listen-back |
+| Package of 3 or more aircraft, or an uncertain life-safety call | **Commander approval ping** |
+| Otherwise | Automatic dispatch |
+
+**Execution is code.** It creates the incident on the map at the reported place and tasks drones
+through the normal coordinator. The incident's objective carries the call facts, so Jev's
+priority judgments see them.
+
+**Live spot-check** (30 generated calls, jev-1.13.0):
+
+- Call type and place right on 25 of 30.
+- Garbled calls were read as "person in danger, location unknown", which the policy sends to an
+  operator.
+- One garbled call ("my husband went back for the horses") was associated with a farm. The full
+  rescue it proposed requires approval, which is why that gate exists.
+
+**Demo.**
+
+- 0:38: a family member's call about the trapped grandmother.
+- 0:44: the commander approves. Scripted, and labelled as such.
+- 0:58: an info call is auto-replied.
+- 1:38: a repeat call is merged.
+
+The free simulation receives random calls every 22–40 s.
 
 ## Strategic judgment (one fan-out request per replan)
 

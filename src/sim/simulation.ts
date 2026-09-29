@@ -17,6 +17,8 @@ import { AGENTS, capacity, isAbstract, loadout, type AgentId, type Loadout, type
 import { Ledger } from './ledger';
 import { Logistics } from './logistics';
 import { applyAgent, hottestCell } from './suppression';
+import { CallCenter } from '../calls/callCenter';
+import { CallGenerator } from '../calls/generator';
 import { heightAt, type Pt } from '../world/layout';
 
 export interface FxEvent {
@@ -98,6 +100,11 @@ export class Simulation {
   readonly ledger: Ledger;
   readonly logistics: Logistics;
   private spots: { t: number; x: number; z: number }[];
+  readonly calls: CallCenter;
+  readonly callGen: CallGenerator;
+  /** Free simulation: random emergency calls arrive (the demo scripts its own). */
+  autoCalls = false;
+  private nextCallT = 20;
   private acc = 0;
   private commAcc = 0;
   private listeners: SimListeners[] = [];
@@ -135,6 +142,21 @@ export class Simulation {
       d.spec = { capacity: cap, maxSpeed: pf.maxSpeed.v, enduranceMin: pf.enduranceMin.v, dischargeSec: cap / pf.dischargeLps.v, pumpLps: pf.pumpLps.v };
       d.releaseHook = (q) => this.logistics.release(q.id);
     }
+    this.callGen = new CallGenerator(new Rng(opts.seed + 5));
+    this.calls = new CallCenter({
+      t: () => this.t,
+      client: () => (this.coordinator.mode === 'JEV' ? this.coordinator.client : null),
+      log: (title, lines, level, by) => this.emitLog({ t: this.t, title, lines, level, by }),
+      banner: (title, lines, level) => this.banner(title, lines, level),
+      createIncident: (p, conf, civId) => this.sensors.create(p.x, p.z, conf, civId, 'CALL', this.t, this.sensorEvents).id,
+      replan: (reason) => this.coordinator.trigger(reason),
+      detectionOpen: (detId) => {
+        const det = this.sensors.detections.find((d) => d.id === detId);
+        if (!det || det.status === 'DISMISSED') return false;
+        const civ = det.truthCivId && det.status === 'CONFIRMED' ? this.civilians.find((c) => c.id === det.truthCivId) : undefined;
+        return civ?.behavior !== 'SAFE';
+      },
+    });
     this.coordinator = new JevCoordinator({
       log: (e) => this.emitLog(e),
       replanned: (c, j) => this.listeners.forEach((l) => l.replan(c, j)),
@@ -168,6 +190,8 @@ export class Simulation {
     return {
       t: this.t, fire: this.fire, arrival: this.arrival, sensors: this.sensors, drones: this.drones,
       loadout: this.lo, policy: this.policy,
+      callInfo: (detId) => this.calls.callInfo(detId),
+      fireReports: this.calls.activeFireReports(this.t),
       directive: this.coordinator.directive, corridors: this.coordinator.corridors,
       confirmedCiv: (detId) => {
         const det = this.sensors.detections.find((d) => d.id === detId);
@@ -233,8 +257,12 @@ export class Simulation {
     },
     onDeliver: (d, x, z) => {
       this.packages.push({ x, y: d.y - 2, z, vy: 0, landed: false });
-      const civ = this.civilians.find((c) => c.id === d.task.civilianId);
+      // A supply drop can be flown to a call-reported incident before anyone is confirmed.
+      const det = this.sensors.detections.find((q) => q.id === d.task.detectionId);
+      const civ = this.civilians.find((c) => c.id === d.task.civilianId) ?? (det?.truthCivId ? this.civilians.find((c) => c.id === det.truthCivId && dist2(c.x, c.z, x, z) < 250) : undefined);
       if (civ) civ.supplied = true;
+      const inc = det ? this.calls.callInfo(det.id)?.incident : undefined;
+      if (inc) inc.supplied = true;
       this.fx({ type: 'deliver', x, y: d.y, z, droneId: d.id });
       this.emitLog({ t: this.t, title: 'SUPPLY DROP', lines: [`${d.id} → ${sectorOf(x, z)}`, 'water · mask · radio beacon'], level: 'ok' });
       this.coordinator.trigger('supplies delivered');
@@ -303,8 +331,8 @@ export class Simulation {
   readonly sensorEvents = {
     onNewDetection: (det: Detection, by: string) => {
       this.fx({ type: 'detect', x: det.x, y: 0, z: det.z, droneId: by });
-      const call = by === 'CALL';
-      this.emitLog({ t: this.t, title: call ? 'CIVILIAN REPORTED' : 'THERMAL ANOMALY', lines: [`sector ${det.sector} · ${call ? 'emergency call' : by}`, `confidence ${det.conf.toFixed(2)}`], level: 'warn' });
+      if (by === 'CALL') { this.coordinator.trigger('call incident'); return; } // the call centre logs its own dispatch
+      this.emitLog({ t: this.t, title: 'THERMAL ANOMALY', lines: [`sector ${det.sector} · ${by}`, `confidence ${det.conf.toFixed(2)}`], level: 'warn' });
       this.coordinator.trigger('thermal detection');
     },
   };
@@ -316,6 +344,11 @@ export class Simulation {
       this.fire.ignite(sp.x, sp.z, 14);
       this.emitLog({ t: this.t, title: 'SPOT FIRE', lines: [`new ignition ${sectorOf(sp.x, sp.z)}`, 'embers ahead of the main fire'], level: 'warn' });
       this.coordinator.trigger('spot fire');
+    }
+    if (this.autoCalls && this.coordinator.enabled && this.t >= this.nextCallT) {
+      const front = this.fire.frontCells().slice(0, 200).map((k) => this.fire.cellCenter(k % this.fire.n, (k / this.fire.n) | 0));
+      this.calls.receive(this.callGen.next(this.t, this.civilians, front));
+      this.nextCallT = this.t + this.rng.range(22, 40);
     }
     this.fire.update(dt);
     for (const d of this.drones) if (d.role === 'SUPPRESSION' && d.airborne) this.ledger.flightSec += dt;

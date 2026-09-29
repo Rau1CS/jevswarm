@@ -39,6 +39,13 @@ const SPECS: [string, string, Tag][] = [
   ['PAYLOAD MODULE', 'Swappable rail-mounted modules: gimbal, supply pod, relay mast, suppression tank', 'con'],
 ];
 
+/** Division of labour shown in the app: Jev judges, code computes and flies, humans approve. */
+const ROLES: [string, string][] = [
+  ['JEV', 'Triage every emergency call in one request: kind of call, urgency, which known place, whether anyone cannot get out, whether it repeats an open incident, and which response package fits. Also ranks incident priorities and parses the commander’s plain-language orders.'],
+  ['CODE', 'Fire spread and arrival prediction, wind response, search patterns, evacuation-route planning, task allocation, refill logistics, collision avoidance and all flight. Applies the dispatch policy to Jev’s answers: auto-reply, merge, dispatch, or ask a human.'],
+  ['HUMAN', 'Approves large or uncertain dispatches, listens back to unclear calls and sets their location, and can override any assignment with a plain-language order.'],
+];
+
 const REFS: [string, string][] = [
   ['PX4 Autopilot — documentation', 'https://docs.px4.io/main/en/'],
   ['PX4 — Holybro X500 V2 + Pixhawk 6C dev kit', 'https://docs.px4.io/main/en/frames_multicopter/holybro_x500v2_pixhawk6c.html'],
@@ -164,6 +171,9 @@ export class TechPage {
         <div class="tp-sub">How the simulated aircraft could map onto open, publicly documented hardware and software. This is a concept reference, not build or certification guidance.</div>
         <div class="tp-legend">${tagHtml('pub')} manufacturer / project documentation ${tagHtml('sim')} value used by this simulation ${tagHtml('con')} proposed architecture</div>
         <table class="tp-table">${SPECS.map(([k, v, t]) => `<tr><td>${k}</td><td>${v}</td><td>${tagHtml(t)}</td></tr>`).join('')}</table>
+        <h3>WHO DOES WHAT</h3>
+        <table class="tp-roles">${ROLES.map(([layer, what]) => `<tr><td><span class="by by-${layer.toLowerCase()}">${layer}</span></td><td>${what}</td></tr>`).join('')}</table>
+        <div class="tp-note">Rule of thumb: anything that can be computed exactly (physics, geometry, scheduling, flight) is code. Jev is used where the input is messy human language and a fast, calibrated judgment is needed. A human approves wherever the stakes are high or Jev is unsure. In a benchmark on real wildfire messages (research/triage), Jev beat keyword rules, local models and a classifier trained on past disasters at exactly that step.</div>
         <h3>SOFTWARE ARCHITECTURE</h3>
         <div class="tp-note">Deterministic layers fly the aircraft: PX4 handles stabilisation and waypoint following; the companion computer runs sensing, collision avoidance and task execution. Jev sits above them as a coordinator: it receives a structured summary of the incident (objectives, fire prediction, swarm status) and returns typed judgments — a Choice of top priority and a Score of urgency per objective — which ordinary code turns into task assignments. Jev never controls motors or flight paths.</div>
         <h3>REFERENCES</h3>

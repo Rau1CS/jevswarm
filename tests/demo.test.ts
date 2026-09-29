@@ -24,7 +24,9 @@ describe('Cinematic demo (headless, fallback coordinator)', () => {
       sim.advance(1 / 60);
     }
     expect(finished).toBe(true);
-    for (const t of ['THERMAL ANOMALY', 'WIND SHIFT DETECTED', 'SUPPRESSION DROP', 'HUMAN CONFIRMED', 'SAFE CORRIDOR IDENTIFIED']) expect(titles).toContain(t);
+    for (const t of ['WIND SHIFT DETECTED', 'SUPPRESSION DROP', 'HUMAN CONFIRMED', 'SAFE CORRIDOR IDENTIFIED']) expect(titles).toContain(t);
+    // Emergency-call storyline: triage → approval ping → commander decision → dispatch; info call auto-replied; repeat merged.
+    for (const t of ['EMERGENCY CALL', 'APPROVAL REQUESTED', 'COMMANDER DECISION', 'DISPATCH', 'CALL ANSWERED', 'REPEAT CALL MERGED']) expect(titles).toContain(t);
     // The priority-change callout lists a coordinated team (several drones, several roles).
     const team = callouts.find((l) => l[0] === 'CIVILIAN RISK: CRITICAL' && l.length >= 4);
     expect(team).toBeTruthy();

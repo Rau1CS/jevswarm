@@ -7,6 +7,7 @@ import type { LabelSpec } from '../ui/labels';
 import type { ViewMode } from '../render/stage';
 import { objectiveWeight } from '../jev/allocator';
 import { isAbstract } from '../sim/loadout/catalogue';
+import { placeById as PLACE_BY_ID } from '../calls/places';
 
 const PLACES = [
   { key: 'p-base', x: BASE_POS.x + 40, z: BASE_POS.z - 60, text: 'COMMAND POST' },
@@ -26,6 +27,14 @@ export function buildLabels(sim: Simulation, view: ViewMode, selected: Drone | n
       const text = `${s.id === 'LAKE' ? 'DIP POINT' : s.id === 'FWD' ? 'FORWARD REFILL' : 'REFILL STATION'} · ${s.busy.size}/${s.slots}${s.queue.length ? ` · ${s.queue.length} WAITING` : ''}`;
       out.push({ key: `st-${s.id}`, x: s.x, y: heightAt(s.x, s.z) + (s.id === 'LAKE' ? 70 : 28), z: s.z, html: text, cls: 'place', maxDist: 2600, priority: 3, w: text.length * 7 + 10 });
     }
+  }
+
+  // Emergency calls waiting for a human: mark the reported place.
+  for (const r of sim.calls.pending) {
+    const p = r.triage?.placeId ? PLACE_BY_ID(r.triage.placeId) : undefined;
+    if (!p) continue;
+    const text = `☎ ${r.call.id} · ${r.status === 'REVIEW' ? 'OPERATOR REVIEW' : 'APPROVAL NEEDED'}`;
+    out.push({ key: `call-${r.call.id}`, x: p.x, y: heightAt(p.x, p.z) + 34, z: p.z, html: text, cls: 'place callmark', maxDist: 3000, priority: 8, w: text.length * 7 + 10 });
   }
 
   for (const d of sim.drones) {

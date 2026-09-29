@@ -41,6 +41,7 @@ Drone models are generated in Blender (`tools/blender/`, exported to `public/mod
 | --- | --- |
 | **RUN CINEMATIC DEMO** | Curated ~2:40 scenario for screen recording (live simulation, scripted beats). |
 | **START SIMULATION** | Randomised fire origin, wind, civilians, sensor noise, failures — with the chosen suppression loadout. |
+| **EMERGENCY CALLS** panel (in the simulation) | Calls from residents are triaged by Jev in one request (kind, urgency, known place, can't-leave, repeat, response package); code applies the dispatch policy; big or uncertain rescues ping the commander to APPROVE / CHANGE / DISMISS; unclear calls go to operator listen-back. Every decision in the stream is tagged JEV / CODE / HUMAN. |
 | **MESSAGE TRIAGE** | Real wildfire messages (HumAID / CrisisLexT26, loaded at runtime) streamed through Jev: category + standing questions in one request per message, commander adds new questions live, confidence routing to lanes vs human review, priority inbox, live agreement with human labels, latency and cost. Needs a Jev key. Benchmark behind it: [research/triage](research/triage/README.md). |
 | **SUPPRESSION LOADOUT** (title screen) | Scenario (initial attack / established fire), platform, suppressant, forward refill truck. |
 | **SUPPRESSION LAB** | Same seeds under NO SUPPRESSION / NEAREST-FIRE RULE / COORDINATOR; area burned, delivery, cycles, cost. |
