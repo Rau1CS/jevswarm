@@ -126,7 +126,6 @@
           <div class="ts-key-note">Without a key you can watch recorded real Jev sessions. With your key, the demo, the free simulation and the triage console run live on Jev. The key stays in this browser and is sent per request to this site’s proxy, which forwards it to api.typesafe.ai and never stores or logs it. Usage is billed to your TypeSafe account (about $0.04 per 1,000 messages).<br />No key yet? Get one at <a href="https://console.typesafe.ai/" target="_blank" rel="noopener">console.typesafe.ai</a> · <a href="https://docs.typesafe.ai/" target="_blank" rel="noopener">Jev docs</a></div>
         </form>
       </div>
-      <aside id="loadout"></aside>
       <div class="ts-powered">Powered by <a href="https://typesafe.ai" target="_blank" rel="noopener">TypeSafe</a> Jev · <a href="https://docs.typesafe.ai/" target="_blank" rel="noopener">docs</a> · <a href="https://console.typesafe.ai/" target="_blank" rel="noopener">get a key</a></div>
       <div class="ts-foot">Simulation. Values marked SIM are abstractions — see TECH / REAL-WORLD DESIGN.</div>
     </div>
@@ -135,6 +134,13 @@
     <div id="tech-page" class="hidden"></div>
     <div id="sup-overlay" class="hidden"></div>
     <div id="triage" class="hidden"></div>
+    <div id="setup" class="hidden"><aside id="loadout"></aside></div>
+    <div id="rotate" role="dialog" aria-label="Rotate your device">
+      <div class="rot-icon">↻</div>
+      <h2>Turn your phone sideways</h2>
+      <p>Jev Rescue Swarm is a 3D command-centre view built for landscape (16:9) screens. Rotate your device, or open it on a laptop or desktop for the full experience.</p>
+    </div>
+    <div id="small-note" class="hidden">Best experienced on a laptop or desktop screen <button type="button">OK</button></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>

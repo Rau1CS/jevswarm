@@ -120,7 +120,14 @@ export class App {
     };
     $('btn-demo').addEventListener('click', () => void this.startDemo());
     $('btn-watch').addEventListener('click', () => void this.startDemo(true));
-    $('btn-free').addEventListener('click', () => this.startFree());
+    $('btn-free').addEventListener('click', () => this.openSetup());
+    this.loadoutPanel.onStart = () => {
+      $('setup').classList.add('hidden');
+      void this.startFree();
+    };
+    this.loadoutPanel.onCancel = () => $('setup').classList.add('hidden');
+    $('setup').addEventListener('click', (e) => { if (e.target === $('setup')) $('setup').classList.add('hidden'); });
+    this.bindSmallScreenNote();
     $('btn-tech2').addEventListener('click', () => this.openTech());
     $('btn-triage').addEventListener('click', () => void this.triage.open());
     this.loadoutPanel.onLab = () => this.supOverlay.openLab(this.loadoutPanel.setup, this.droneCount);
@@ -134,6 +141,7 @@ export class App {
       if (e.key === '3') this.setView('THERMAL');
       if (e.key === 'Escape') {
         this.supOverlay.close();
+        $('setup').classList.add('hidden');
         this.triage.close();
         this.select(null);
       }
@@ -332,6 +340,30 @@ export class App {
       },
     });
     this.sim.paused = false;
+  }
+
+  /** Free simulation needs live Jev; with a key, show the setup (scenario + loadout) first. */
+  private openSetup(): void {
+    if (!this.jevConfigured) {
+      void this.startFree(); // explains that a key is needed
+      return;
+    }
+    $('setup').classList.remove('hidden');
+  }
+
+  private bindSmallScreenNote(): void {
+    const note = $('small-note');
+    let dismissed = false;
+    try { dismissed = sessionStorage.getItem('jev.smallnote') === '1'; } catch { /* storage unavailable */ }
+    const small = () => window.matchMedia('(max-height: 520px), (max-width: 900px)').matches && window.matchMedia('(orientation: landscape)').matches;
+    const update = () => note.classList.toggle('hidden', dismissed || !small());
+    note.querySelector('button')!.addEventListener('click', () => {
+      dismissed = true;
+      try { sessionStorage.setItem('jev.smallnote', '1'); } catch { /* ignore */ }
+      update();
+    });
+    window.addEventListener('resize', update);
+    update();
   }
 
   async startFree(): Promise<void> {

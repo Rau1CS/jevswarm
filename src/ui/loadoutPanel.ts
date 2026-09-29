@@ -34,6 +34,8 @@ export class LoadoutPanel {
   private root = document.getElementById('loadout')!;
   onLab: () => void = () => {};
   onCatalogue: () => void = () => {};
+  onStart: () => void = () => {};
+  onCancel: () => void = () => {};
 
   constructor() {
     this.render();
@@ -50,7 +52,8 @@ export class LoadoutPanel {
     const landing = landingFraction(lo, 3);
     const warn = ag.notes.filter((n) => /jurisdiction|not extinguishment|never guaranteed/i.test(n));
     this.root.innerHTML = `
-      <div class="lo-head">SUPPRESSION LOADOUT <span class="muted">· free simulation &amp; lab</span></div>
+      <div class="lo-head">FREE SIMULATION SETUP <span class="muted">· runs on live Jev</span></div>
+      <div class="lo-intro">Random fire, civilians, emergency calls and disruptions. Pick the scenario and the suppression hardware the drones carry; Jev makes the calls.</div>
       <div class="lo-row"><span class="k">SCENARIO</span><div class="seg">${seg('scenario', 'INITIAL_ATTACK', 'INITIAL ATTACK', s.scenario === 'INITIAL_ATTACK')}${seg('scenario', 'ESTABLISHED', 'ESTABLISHED FIRE', s.scenario === 'ESTABLISHED')}</div></div>
       <div class="lo-row"><span class="k">PLATFORM</span><select data-f="platform">${PICKABLE_PLATFORMS.map((id) => opt(id, PLATFORMS[id].name, s.platform)).join('')}</select></div>
       <div class="lo-row"><span class="k">AGENT</span><select data-f="agent"${concept ? ' disabled' : ''}>${concept ? opt('ABSTRACT', AGENTS.ABSTRACT.name, 'ABSTRACT') : PICKABLE_AGENTS.map((id) => opt(id, AGENTS[id].name, s.agent)).join('')}</select></div>
@@ -64,7 +67,7 @@ export class LoadoutPanel {
       </div>
       ${warn.map((w) => `<div class="lo-warn">${esc(w)}</div>`).join('')}
       ${concept ? '<div class="lo-warn">Legacy abstraction: effect is not derived from delivered litres. The cinematic demo always uses it.</div>' : ''}
-      <div class="lo-actions"><button type="button" data-a="cat" class="ghost">CATALOGUE &amp; SOURCES</button></div>`;
+      <div class="lo-actions"><button type="button" data-a="start" class="primary">START LIVE SIMULATION</button><button type="button" data-a="cat" class="ghost">CATALOGUE</button><button type="button" data-a="cancel" class="ghost">CANCEL</button></div>`;
     this.root.querySelectorAll<HTMLSelectElement>('select[data-f]').forEach((el) => el.addEventListener('change', () => {
       if (el.dataset.f === 'platform') this.setup.platform = el.value as SuppressionSetup['platform'];
       else this.setup.agent = el.value as SuppressionSetup['agent'];
@@ -76,6 +79,8 @@ export class LoadoutPanel {
       this.changed();
     }));
     this.root.querySelector('[data-a="cat"]')!.addEventListener('click', () => this.onCatalogue());
+    this.root.querySelector('[data-a="start"]')!.addEventListener('click', () => this.onStart());
+    this.root.querySelector('[data-a="cancel"]')!.addEventListener('click', () => this.onCancel());
   }
 
   private changed(): void {
