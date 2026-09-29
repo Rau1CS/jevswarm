@@ -35,6 +35,28 @@ Drone models are generated in Blender (`tools/blender/`, exported to `public/mod
 "C:\Program Files\Blender Foundation\Blender 5.0\blender.exe" -b --factory-startup --python tools/blender/build_drones.py
 ```
 
+## Hosted version (free)
+
+Live at **https://jev-rescue-swarm.pages.dev**, on Cloudflare Pages' free plan.
+
+- **Static site:** static-asset requests are free and unlimited.
+- **Pages Function:** `functions/api/jev/`, within the free Workers quota of 100,000
+  requests/day. If the quota is exceeded, requests simply fail; there is no billing.
+- **Bring your own key:** there is no server key. Visitors paste their own TypeSafe key on the
+  title screen. It stays in their browser (session, or "remember") and is sent per request to
+  the proxy, which accepts same-origin requests only, forwards to api.typesafe.ai, and never
+  stores or logs it. Jev usage is billed to the visitor's own TypeSafe account.
+- **Without a key:** everything still runs on the labelled fallback rules; only live Jev
+  decisions and the triage console need one.
+- **Security headers:** `public/_headers` sets a strict CSP (self, Google Fonts, and the two
+  public data sources).
+
+Redeploy after changes:
+
+```bash
+npm run deploy     # build + wrangler pages deploy (after a one-time `npx wrangler login`)
+```
+
 ## What to try
 
 | Control | What it does |

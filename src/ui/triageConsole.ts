@@ -41,7 +41,7 @@ export class TriageConsole {
     this.root.classList.remove('hidden');
     this.shell();
     await this.client.init();
-    if (!this.client.configured) this.notice('Jev is not configured on this server (set TYPESAFE_API_KEY in .env.local). The console needs Jev to triage.');
+    if (!this.client.configured) this.notice('No Jev key: add your own TypeSafe key on the title screen (or set TYPESAFE_API_KEY in .env.local when running locally). The console needs Jev to triage.');
     await this.loadFeed();
   }
 
@@ -63,7 +63,7 @@ export class TriageConsole {
     try {
       this.feed = shuffled(await src.load());
       this.cursor = 0;
-      this.notice(this.client.configured ? '' : 'Jev is not configured on this server (set TYPESAFE_API_KEY in .env.local).');
+      this.notice(this.client.configured ? '' : 'No Jev key: add your own TypeSafe key on the title screen.');
     } catch {
       this.notice(`Could not load ${src.name}. Check the network connection.`);
     }

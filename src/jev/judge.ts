@@ -6,6 +6,7 @@
  * FallbackJudge produces the same shape from transparent heuristics.
  */
 import { fmtClock } from '../core/math';
+import { currentJevKey, jevStatus } from './key';
 import type { FireModel } from '../sim/fire';
 import type { Drone } from '../sim/drone';
 import type { Directive, Judgment, Objective } from './types';
@@ -39,19 +40,14 @@ export class JevClient {
   inputTokens = 0;
 
   async init(): Promise<void> {
-    try {
-      const r = await fetch('/api/jev/status');
-      const j = (await r.json()) as { configured: boolean };
-      this.configured = this.connected = Boolean(j.configured);
-    } catch {
-      this.configured = this.connected = false;
-    }
+    const s = await jevStatus();
+    this.configured = this.connected = s.usable;
   }
 
   async ask(state: unknown, questions: Record<string, unknown>): Promise<JevResponse> {
     const r = await fetch('/api/jev', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(currentJevKey() ? { 'X-Jev-Key': currentJevKey()! } : {}) },
       body: JSON.stringify({ state, questions }),
     });
     const j = await r.json();

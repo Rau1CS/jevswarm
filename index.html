@@ -117,6 +117,13 @@
           <button id="btn-tech2" class="ghost">TECH / REAL-WORLD DESIGN</button>
         </div>
         <div id="ts-status" class="ts-status">Checking Jev connection…</div>
+        <form id="ts-key" class="ts-key hidden" autocomplete="off">
+          <input type="password" placeholder="Your TypeSafe (Jev) API key" aria-label="Your TypeSafe (Jev) API key" />
+          <label><input type="checkbox" /> remember on this device</label>
+          <button type="submit">USE KEY</button>
+          <button type="button" data-a="clear" class="ghost">FORGET</button>
+          <div class="ts-key-note">Optional. Everything runs without a key using clearly labelled fallback rules; a key turns on live Jev decisions and the message-triage console. The key stays in this browser and is sent per request to this site’s proxy, which forwards it to api.typesafe.ai and never stores or logs it. Usage is billed to your TypeSafe account (about $0.04 per 1,000 messages).</div>
+        </form>
       </div>
       <aside id="loadout"></aside>
       <div class="ts-foot">Simulation. Values marked SIM are abstractions — see TECH / REAL-WORLD DESIGN.</div>

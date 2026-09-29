@@ -1,17 +1,14 @@
 /**
- * Server-side proxy for the TypeSafe System One API (Jev).
+ * Local (Vite dev/preview) proxy for the TypeSafe System One API (Jev).
  *
- * The browser never sees the API key: it POSTs { state, questions } to /api/jev and this
- * middleware forwards the request to https://api.typesafe.ai/v1/systemone with the key.
- * Contract per https://docs.typesafe.ai/api.md
+ * The browser POSTs { state, questions } to /api/jev and this middleware forwards it to
+ * https://api.typesafe.ai/v1/systemone. Key: TYPESAFE_API_KEY from .env.local (never sent to
+ * the browser); if none is configured, a visitor-supplied key in the X-Jev-Key header is used
+ * for that request only (bring-your-own-key, same as the hosted Pages Function).
  */
 import type { Plugin, Connect } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-
-const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
-const MAX_BODY_BYTES = 256 * 1024;
-const MAX_QUESTIONS = 64;
-const RETRY_STATUSES = new Set([429, 529]);
+import { MAX_BODY_BYTES, handleJev, plausibleKey } from './jevShared';
 
 interface ProxyOptions {
   apiKey?: string;
@@ -42,71 +39,24 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-/** Validate the client payload at the boundary; only state + questions are forwarded. */
-function validate(raw: unknown): { state: unknown; questions: Record<string, unknown> } | string {
-  if (typeof raw !== 'object' || raw === null) return 'body must be an object';
-  const { state, questions } = raw as Record<string, unknown>;
-  if (state === undefined) return 'missing state';
-  if (typeof questions !== 'object' || questions === null || Array.isArray(questions)) return 'questions must be a map';
-  const entries = Object.entries(questions as Record<string, unknown>);
-  if (entries.length === 0 || entries.length > MAX_QUESTIONS) return `questions must have 1..${MAX_QUESTIONS} entries`;
-  for (const [id, q] of entries) {
-    const t = (q as { type?: unknown })?.type;
-    if (t !== 'noul' && t !== 'choice' && t !== 'score') return `question ${id}: invalid type`;
-  }
-  return { state, questions: questions as Record<string, unknown> };
-}
-
-async function forward(apiKey: string, body: string): Promise<{ status: number; json: unknown }> {
-  let delay = 400;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const r = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-      body,
-      signal: AbortSignal.timeout(15000),
-    });
-    if (RETRY_STATUSES.has(r.status) && attempt < 2) {
-      const retryAfter = Number(r.headers.get('retry-after'));
-      await new Promise((ok) => setTimeout(ok, Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : delay));
-      delay *= 2;
-      continue;
-    }
-    const text = await r.text();
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = { error: text.slice(0, 500) };
-    }
-    return { status: r.status, json };
-  }
-  return { status: 529, json: { error: 'overloaded after retries' } };
-}
-
 function middleware(opts: ProxyOptions): Connect.NextHandleFunction {
-  const apiKey = opts.apiKey?.trim();
+  const serverKey = opts.apiKey?.trim();
   const model = opts.model?.trim() || 'jev-latest';
   return (req, res, next) => {
     const url = req.url ?? '';
     if (url === '/api/jev/status') {
-      send(res, 200, { configured: Boolean(apiKey), model });
+      send(res, 200, { configured: Boolean(serverKey), byok: !serverKey, model });
       return;
     }
     if (url !== '/api/jev') return next();
     if (req.method !== 'POST') return send(res, 405, { error: 'POST only' });
-    if (!apiKey) return send(res, 503, { error: 'TYPESAFE_API_KEY not configured' });
+    const header = req.headers['x-jev-key'];
+    const visitorKey = Array.isArray(header) ? header[0] : header;
+    const apiKey = serverKey || (plausibleKey(visitorKey) ? visitorKey : undefined);
+    if (!apiKey) return send(res, 401, { error: 'No Jev key: set TYPESAFE_API_KEY in .env.local or enter your own key' });
     readBody(req)
       .then(async (text) => {
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(text);
-        } catch {
-          return send(res, 400, { error: 'invalid JSON' });
-        }
-        const v = validate(parsed);
-        if (typeof v === 'string') return send(res, 422, { error: v });
-        const out = await forward(apiKey, JSON.stringify({ state: v.state, model, questions: v.questions }));
+        const out = await handleJev(apiKey, model, text);
         send(res, out.status, out.json);
       })
       .catch((e: unknown) => send(res, 502, { error: e instanceof Error ? e.message : 'proxy error' }));

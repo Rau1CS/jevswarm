@@ -32,6 +32,7 @@ import { SupOverlay } from '../ui/labPanel';
 import { TriageConsole } from '../ui/triageConsole';
 import { CallsPanel } from '../ui/callsPanel';
 import { isAbstract } from '../sim/loadout/catalogue';
+import { clearJevKey, currentJevKey, jevStatus, setJevKey } from '../jev/key';
 
 type Mode = 'MENU' | 'DEMO' | 'FREE' | 'RESULTS';
 const $ = (id: string) => document.getElementById(id)!;
@@ -131,11 +132,39 @@ export class App {
     // Menu backdrop: slow orbit over the burning valley.
     this.rig.flyTo(new THREE.Vector3(-1500, 700, 900), new THREE.Vector3(-300, 40, -100), 0.01);
     this.rig.cineOrbit(new THREE.Vector3(-250, 40, -80), 1450, 560, 0.03);
-    fetch('/api/jev/status').then((r) => r.json()).then((j: { configured: boolean; model: string }) => {
-      this.jevConfigured = j.configured;
-      $('ts-status').textContent = j.configured ? `Jev connected (${j.model}) · strategic decisions from TypeSafe System One` : 'Jev not configured (set TYPESAFE_API_KEY in .env.local) · running SIMULATION COORDINATOR fallback';
-    }).catch(() => ($('ts-status').textContent = 'Jev proxy unavailable · running SIMULATION COORDINATOR fallback'));
+    this.bindKeyForm();
+    void this.refreshJevStatus();
     requestAnimationFrame(() => this.loop());
+  }
+
+  /** Title-screen status line + bring-your-own-key form (hosted build has no server key). */
+  private async refreshJevStatus(): Promise<void> {
+    const s = await jevStatus();
+    this.jevConfigured = s.usable;
+    const form = $('ts-key');
+    form.classList.toggle('hidden', !s.byok);
+    $('ts-status').textContent = s.usable
+      ? `Jev connected (${s.model}) · strategic decisions from TypeSafe System One${s.byok ? ' · your key' : ''}`
+      : s.byok
+        ? 'No Jev key · running the SIMULATION COORDINATOR fallback · add your own key below for live Jev'
+        : 'Jev proxy unavailable · running SIMULATION COORDINATOR fallback';
+    (form.querySelector('[data-a="clear"]') as HTMLElement).classList.toggle('hidden', !currentJevKey());
+  }
+
+  private bindKeyForm(): void {
+    const form = $('ts-key') as HTMLFormElement;
+    const [input, remember] = form.querySelectorAll('input') as unknown as [HTMLInputElement, HTMLInputElement];
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (input.value.trim().length < 8) return;
+      setJevKey(input.value, remember.checked);
+      input.value = '';
+      void this.refreshJevStatus();
+    });
+    form.querySelector('[data-a="clear"]')!.addEventListener('click', () => {
+      clearJevKey();
+      void this.refreshJevStatus();
+    });
   }
 
   private buildStatic(): void {

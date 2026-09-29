@@ -436,3 +436,11 @@ button, input, select { font: inherit; color: inherit; }
 .tp-roles td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; line-height: 1.45; }
 .tp-roles td:first-child { width: 64px; }
 .tp-roles .by { margin-left: 0; font-size: 9px; }
+
+/* ---------- bring-your-own Jev key ---------- */
+.ts-key { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; max-width: 640px; }
+.ts-key input[type=password] { flex: 1; min-width: 220px; background: rgba(10, 14, 18, 0.8); border: 1px solid var(--line-strong); padding: 8px 10px; font-family: var(--mono); font-size: 12px; }
+.ts-key label { font-family: var(--mono); font-size: 10.5px; color: var(--muted); display: flex; gap: 5px; align-items: center; }
+.ts-key button { border: 1px solid var(--line-strong); background: rgba(10, 14, 18, 0.7); padding: 8px 14px; font-weight: 600; letter-spacing: 0.14em; font-size: 11px; cursor: pointer; }
+.ts-key button.ghost { color: var(--muted); }
+.ts-key-note { flex-basis: 100%; font-size: 11px; color: var(--dim); line-height: 1.45; }
