@@ -29,8 +29,8 @@ export interface JudgeContext {
   windNote: string;
 }
 
-type AnyAnswer = { type: string; choice?: string; score?: number; confidence?: number; noul?: number };
-interface JevResponse { model: string; answers: Record<string, AnyAnswer>; usage?: { input_tokens: number } }
+export type AnyAnswer = { type: string; choice?: string; score?: number; confidence?: number; probabilities?: Record<string, number>; noul?: number };
+export interface JevResponse { model: string; answers: Record<string, AnyAnswer>; usage?: { input_tokens: number } }
 
 export class JevClient {
   connected = false;

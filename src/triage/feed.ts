@@ -24,16 +24,31 @@ export interface FeedSource {
 const HF_ROWS = 'https://datasets-server.huggingface.co/rows';
 
 async function humaid(config: string, split: string, total: number): Promise<FeedMessage[]> {
-  const pages = Math.ceil(total / 100);
-  const out: FeedMessage[] = [];
-  const reqs = Array.from({ length: pages }, (_, p) =>
-    fetch(`${HF_ROWS}?dataset=QCRI%2FHumAID-events&config=${config}&split=${split}&offset=${p * 100}&length=100`)
-      .then((r) => (r.ok ? r.json() : { rows: [] }))
-      .catch(() => ({ rows: [] })));
-  for (const page of await Promise.all(reqs)) {
-    for (const { row_idx, row } of (page as { rows: { row_idx: number; row: { tweet_text: string; class_label: string } }[] }).rows) {
-      out.push({ id: `h${row_idx}`, text: row.tweet_text, human: { category: row.class_label } });
+  type Page = { rows: { row_idx: number; row: { tweet_text: string; class_label: string } }[] };
+  const page = async (p: number): Promise<Page> => {
+    // The rows API rate-limits bursts: retry with backoff so no page is silently lost.
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        const r = await fetch(`${HF_ROWS}?dataset=QCRI%2FHumAID-events&config=${config}&split=${split}&offset=${p * 100}&length=100`);
+        if (r.ok) return (await r.json()) as Page;
+      } catch { /* retry */ }
+      await new Promise((ok) => setTimeout(ok, 400 * 2 ** attempt));
     }
+    return { rows: [] };
+  };
+  const pages = Math.ceil(total / 100);
+  const results: Page[] = new Array(pages);
+  let next = 0;
+  const worker = async () => {
+    while (next < pages) {
+      const p = next++;
+      results[p] = await page(p);
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker)); // limited concurrency
+  const out: FeedMessage[] = [];
+  for (const pg of results) {
+    for (const { row_idx, row } of pg.rows) out.push({ id: `h${row_idx}`, text: row.tweet_text, human: { category: row.class_label } });
   }
   return out;
 }

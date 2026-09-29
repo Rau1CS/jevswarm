@@ -68,7 +68,7 @@ export class Drone {
   x: number; y: number; z: number;
   vx = 0; vy = 0; vz = 0;
   yaw = 0; roll = 0; pitch = 0;
-  rotor = Math.random() * 10;
+  rotor = 0;
   battery = 1;
   payload = 1; // 0..1 of role payload
   status: Status = 'LANDED';
@@ -82,7 +82,7 @@ export class Drone {
   prevLabel = 'STANDBY';
   sepX = 0; sepY = 0; sepZ = 0;
   totalDist = 0;
-  private orbitA = Math.random() * Math.PI * 2;
+  private orbitA = 0;
   private wp = 0;
   /** Set by the simulation from the loadout; null = generic airframe. */
   spec: SuppressionSpec | null = null;
@@ -93,6 +93,9 @@ export class Drone {
   constructor(public id: string, public index: number, public role: Role, public pad: Pt) {
     this.x = pad.x;
     this.z = pad.z;
+    // Deterministic per-drone phase (replays must reproduce flights exactly).
+    this.rotor = (index * 1.7) % 10;
+    this.orbitA = (index * 2.39996) % (Math.PI * 2);
     this.y = heightAt(pad.x, pad.z) + 0.6;
     this.task = { kind: 'IDLE', target: { ...pad }, label: 'STANDBY' };
   }

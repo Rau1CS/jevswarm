@@ -47,7 +47,7 @@ export class Results {
     const row = (k: string, v: string) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`;
     this.root.innerHTML = `
       <div class="res-card">
-        <h2>MISSION COMPLETE<small>${demo ? 'Cinematic demo' : 'Free simulation'} · ${fmtClock(sim.t)} mission time · ${sim.drones.length} aircraft · coordinator: ${sim.coordinator.mode === 'JEV' ? 'Jev' : 'simulation fallback'}</small></h2>
+        <h2>MISSION COMPLETE<small>${demo ? 'Cinematic demo' : 'Free simulation'} · ${fmtClock(sim.t)} mission time · ${sim.drones.length} aircraft · coordinator: ${sim.coordinator.mode === 'JEV' ? 'Jev' : 'Jev unavailable'}</small></h2>
         <div class="res-grid">
           ${row('CIVILIANS LOCATED', `${r.located} / ${r.total}`)}
           ${row('CONFIRMED', `${r.confirmed}`)}

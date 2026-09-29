@@ -24,6 +24,8 @@ export class CallsPanel {
   onFocus: (x: number, z: number) => void = () => {};
   /** The demo director marks decisions it makes on the commander's behalf. */
   scripted = false;
+  /** Recorded session: decisions are part of the recording (no buttons). */
+  readOnly = false;
 
   constructor() {
     this.root.addEventListener('click', (e) => {
@@ -87,12 +89,12 @@ export class CallsPanel {
       ${tr.placeId || tr.kind === 'PERSON_IN_DANGER' || tr.kind === 'FIRE_REPORT' || tr.kind === 'UNCLEAR' ? `<span class="chip${tr.placeId ? '' : ' warn'}">${esc(place ?? '')}${tr.placeId ? ` <b>${pct(tr.placeProb)}</b>` : ''}</span>` : ''}
       ${tr.kind === 'PERSON_IN_DANGER' ? `<span class="chip${tr.cannotLeave >= 0.5 ? ' warn' : ''}">CAN'T LEAVE <b>${pct(tr.cannotLeave)}</b></span>` : ''}
       ${tr.duplicateOf ? `<span class="chip">REPEAT OF ${esc(tr.duplicateOf)} <b>${pct(tr.dupProb)}</b></span>` : ''}
-      <span class="src">${tr.source === 'JEV' ? `Jev · ${Math.round(tr.latencyMs)} ms · 1 request` : 'fallback rules'}</span>
+      <span class="src">${tr.source === 'JEV' ? `Jev · ${Math.round(tr.latencyMs)} ms · 1 request` : 'no Jev answer'}</span>
     </div>`;
   }
 
   private pendingCard(r: CallRecord): string {
-    const tr = r.triage!;
+    const tr = r.triage ?? { placeId: null } as Partial<NonNullable<CallRecord['triage']>>;
     const proposed = r.response ?? 'VERIFY';
     const alts: ResponseId[] = ['VERIFY', 'VERIFY_ROUTE', 'FULL_RESCUE'];
     const needPlace = !tr.placeId;
@@ -102,9 +104,11 @@ export class CallsPanel {
       <div class="cp-tx">“${esc(r.call.transcript)}”</div>
       ${this.chips(r)}
       <div class="cp-why">${esc(r.reason)}</div>
-      ${needPlace ? `<select data-id="${r.call.id}"><option value="">— operator: set location —</option>${PLACES.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>` : ''}
+      ${this.readOnly
+        ? '<div class="cp-scripted">recorded session: the commander’s decision follows in the recording</div>'
+        : `${needPlace ? `<select data-id="${r.call.id}"><option value="">— operator: set location —</option>${PLACES.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select>` : ''}
       <div class="cp-btns">${r.status === 'AWAITING_APPROVAL' ? btn(proposed, true) : ''}${alts.filter((a) => a !== proposed || r.status === 'REVIEW').map((a) => btn(a)).join('')}<button data-act="dismiss" data-id="${r.call.id}" class="ghost">DISMISS</button></div>
-      ${this.scripted ? '<div class="cp-scripted">demo: the commander’s decision is scripted</div>' : ''}
+      ${this.scripted ? '<div class="cp-scripted">demo: the commander’s decision is scripted</div>' : ''}`}
     </div>`;
   }
 

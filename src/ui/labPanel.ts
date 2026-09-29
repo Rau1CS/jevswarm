@@ -10,7 +10,7 @@ import { esc, money, tag } from './loadoutPanel';
 const POLICY_TXT: Record<string, [string, string]> = {
   NONE: ['NO SUPPRESSION', 'Suppression aircraft stay on the pad (baseline).'],
   NEAREST: ['NEAREST-FIRE RULE', 'Each suppression drone attacks the front cell nearest to itself.'],
-  COORDINATOR: ['COORDINATOR', 'Objectives → urgency → allocation (deterministic fallback judge in the lab).'],
+  COORDINATOR: ['HEURISTIC PLANNER', 'Objectives → urgency rules → allocation. Rule-based on purpose: this tool compares physics & logistics, not Jev.'],
 };
 
 export class SupOverlay {
@@ -36,7 +36,7 @@ export class SupOverlay {
     const concept = setup.platform === 'CONCEPT120';
     const lo = loadout(setup.platform, concept ? 'ABSTRACT' : setup.agent);
     const desc = `${lo.platform.name} · ${lo.agent.name} · ${setup.scenario === 'INITIAL_ATTACK' ? 'initial attack' : 'established fire'}${setup.forward ? ' · forward refill truck' : ''}`;
-    this.shell('SUPPRESSION LAB', esc(desc), `
+    this.shell('SUPPRESSION LAB · PHYSICS TRADE STUDY', `${esc(desc)} · side tool, no AI`, `
       <p class="so-p">Runs the same scenario and seeds under three tasking policies and compares outcomes. Headless, deterministic fallback coordinator, no random disruption events, paired seeds (common random numbers: every policy faces the same fire until suppression changes it) — <b>Jev is not called here</b> (no token spend); watch Jev live via START SIMULATION.</p>
       <div class="lab-ctl">
         <label>SEEDS <select data-k="seeds"><option>1</option><option selected>3</option><option>5</option></select></label>

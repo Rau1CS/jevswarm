@@ -80,6 +80,9 @@ export class TechPage {
   private shadow: THREE.Mesh | null = null;
   private view!: HTMLDivElement;
   onClose: (() => void) | null = null;
+  /** Side tools (not Jev features): the suppression physics lab and the parameter catalogue. */
+  onLab: (() => void) | null = null;
+  onCatalogue: (() => void) | null = null;
 
   open(): void {
     this.root.classList.remove('hidden');
@@ -176,10 +179,15 @@ export class TechPage {
         <div class="tp-note">Rule of thumb: anything that can be computed exactly (physics, geometry, scheduling, flight) is code. Jev is used where the input is messy human language and a fast, calibrated judgment is needed. A human approves wherever the stakes are high or Jev is unsure. In a benchmark on real wildfire messages (research/triage), Jev beat keyword rules, local models and a classifier trained on past disasters at exactly that step.</div>
         <h3>SOFTWARE ARCHITECTURE</h3>
         <div class="tp-note">Deterministic layers fly the aircraft: PX4 handles stabilisation and waypoint following; the companion computer runs sensing, collision avoidance and task execution. Jev sits above them as a coordinator: it receives a structured summary of the incident (objectives, fire prediction, swarm status) and returns typed judgments — a Choice of top priority and a Score of urgency per objective — which ordinary code turns into task assignments. Jev never controls motors or flight paths.</div>
+        <h3>SIDE TOOLS</h3>
+        <div class="tp-note">Engineering side tools that are <b>not</b> Jev features: a physics &amp; logistics trade study of suppression platforms and agents (rule-based, so comparisons cost no tokens), and the tagged parameter catalogue behind it.</div>
+        <div class="tp-tools"><button class="tog" data-tool="lab">SUPPRESSION LAB · PHYSICS TRADE STUDY</button><button class="tog" data-tool="cat">CATALOGUE &amp; SOURCES</button></div>
         <h3>REFERENCES</h3>
         <ul>${REFS.map(([n, u]) => `<li><a href="${u}" target="_blank" rel="noopener">${n}</a></li>`).join('')}</ul>
       </div>`;
     this.root.querySelector('.tp-close')!.addEventListener('click', () => this.close());
+    this.root.querySelector('[data-tool="lab"]')!.addEventListener('click', () => this.onLab?.());
+    this.root.querySelector('[data-tool="cat"]')!.addEventListener('click', () => this.onCatalogue?.());
     this.root.querySelectorAll<HTMLButtonElement>('.tp-models button').forEach((b) =>
       b.addEventListener('click', () => this.setModel((b.dataset.af as Airframe | undefined) ?? this.airframe, (b.dataset.role as Role | undefined) ?? this.role)));
     this.view = this.root.querySelector('.tp-view') as HTMLDivElement;

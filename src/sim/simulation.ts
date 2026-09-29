@@ -200,12 +200,23 @@ export class Simulation {
     };
   }
 
+  /** Completed fixed steps since construction (the replay clock). */
+  stepCount = 0;
+  /** Called at the start of every step (the demo director's cue clock). */
+  beforeStep: (() => void) | null = null;
+  /**
+   * Replay gate: return true to stop stepping for this frame (a recorded Jev answer was just
+   * released and must be applied, between steps, before the simulation moves on).
+   */
+  gate: ((stepCount: number) => boolean) | null = null;
+
   /** Advance by real-time dt (seconds), scaled, in fixed steps. */
   advance(realDt: number): void {
     if (this.paused) return;
     this.acc += Math.min(realDt, 0.1) * this.timeScale;
     let n = 0;
     while (this.acc >= SIM_STEP && n++ < 20) {
+      if (this.paused || this.gate?.(this.stepCount)) break;
       this.acc -= SIM_STEP;
       this.step(SIM_STEP);
     }
@@ -338,6 +349,8 @@ export class Simulation {
   };
 
   step(dt: number): void {
+    this.beforeStep?.();
+    this.stepCount++;
     this.t += dt;
     while (this.spots.length && this.spots[0].t <= this.t) {
       const sp = this.spots.shift()!;

@@ -33,6 +33,7 @@ import { TriageConsole } from '../ui/triageConsole';
 import { CallsPanel } from '../ui/callsPanel';
 import { isAbstract } from '../sim/loadout/catalogue';
 import { clearJevKey, currentJevKey, jevStatus, setJevKey } from '../jev/key';
+import { ReplayClient, type DemoSession } from '../jev/session';
 
 type Mode = 'MENU' | 'DEMO' | 'FREE' | 'RESULTS';
 const $ = (id: string) => document.getElementById(id)!;
@@ -82,9 +83,14 @@ export class App {
       view: (m) => this.setView(m),
       cam: (p) => this.cameraPreset(p),
       droneCount: (n) => {
+        if (this.replaying) {
+          // A recording is fixed to the fleet it was recorded with.
+          (document.getElementById('drone-count') as HTMLSelectElement).value = String(this.sim.drones.length);
+          return;
+        }
         this.droneCount = n;
-        if (this.mode === 'FREE') this.startFree();
-        else if (this.mode === 'DEMO') this.startDemo();
+        if (this.mode === 'FREE') void this.startFree();
+        else if (this.mode === 'DEMO') void this.startDemo(false);
       },
       timeScale: (n) => (this.sim.timeScale = n),
       techMode: () => {},
@@ -112,11 +118,14 @@ export class App {
     this.rig.onUserTakeover = () => {
       if (this.director) this.director.userCamera = true;
     };
-    $('btn-demo').addEventListener('click', () => this.startDemo());
+    $('btn-demo').addEventListener('click', () => void this.startDemo());
+    $('btn-watch').addEventListener('click', () => void this.startDemo(true));
     $('btn-free').addEventListener('click', () => this.startFree());
     $('btn-tech2').addEventListener('click', () => this.openTech());
     $('btn-triage').addEventListener('click', () => void this.triage.open());
     this.loadoutPanel.onLab = () => this.supOverlay.openLab(this.loadoutPanel.setup, this.droneCount);
+    this.tech.onLab = () => this.supOverlay.openLab(this.loadoutPanel.setup, this.droneCount);
+    this.tech.onCatalogue = () => this.supOverlay.openCatalogue();
     this.loadoutPanel.onCatalogue = () => this.supOverlay.openCatalogue();
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement).tagName === 'INPUT') return;
@@ -143,11 +152,15 @@ export class App {
     this.jevConfigured = s.usable;
     const form = $('ts-key');
     form.classList.toggle('hidden', !s.byok);
+    $('btn-demo').textContent = s.usable ? 'RUN LIVE JEV DEMO' : 'WATCH RECORDED JEV SESSION';
+    $('btn-watch').classList.toggle('hidden', !s.usable);
+    $('btn-free').classList.toggle('needs-key', !s.usable);
+    $('btn-free').title = s.usable ? '' : 'Runs on live Jev: add your key';
     $('ts-status').textContent = s.usable
       ? `Jev connected (${s.model}) · strategic decisions from TypeSafe System One${s.byok ? ' · your key' : ''}`
       : s.byok
-        ? 'No Jev key · running the SIMULATION COORDINATOR fallback · add your own key below for live Jev'
-        : 'Jev proxy unavailable · running SIMULATION COORDINATOR fallback';
+        ? 'No Jev key · watch a recorded real Jev session, or add your own key below to run everything live'
+        : 'Jev proxy unavailable · watch the recorded Jev session';
     (form.querySelector('[data-a="clear"]') as HTMLElement).classList.toggle('hidden', !currentJevKey());
   }
 
@@ -234,25 +247,58 @@ export class App {
     });
   }
 
-  private async prepare(opts: ReturnType<typeof demoScenario>, mode: Mode): Promise<void> {
+  /** True while a recorded Jev session is playing (inputs that would change the run are disabled). */
+  replaying = false;
+  private demoSession: DemoSession | null = null;
+
+  private async prepare(opts: ReturnType<typeof demoScenario>, mode: Mode, session: DemoSession | null = null): Promise<void> {
     this.sound.start();
     this.results.hide();
     this.replay = { on: false, playing: false, t: 0 };
     document.querySelectorAll('.endcard').forEach((e) => e.remove());
     this.newSim(opts);
-    this.sim.coordinator.forceSim = !this.jevConfigured;
+    // Hold the new run until the director/scheduler is attached (replays must start at step 0).
+    this.sim.paused = true;
+    // A Jev showcase: no rule-based stand-in is ever shown. Without Jev, calls go to a human.
+    this.sim.coordinator.allowFallback = false;
+    this.sim.calls.allowFallback = false;
+    this.replaying = Boolean(session);
+    if (session) {
+      const client = new ReplayClient(session);
+      this.sim.coordinator.client = client;
+      this.sim.gate = (n) => client.gate(n);
+    }
     await this.sim.coordinator.init();
-    this.hud.setCoordinator(this.sim.coordinator.label, this.sim.coordinator.mode === 'JEV');
+    const live = this.sim.coordinator.mode === 'JEV';
+    this.hud.setCoordinator(session ? `RECORDED JEV SESSION` : live ? this.sim.coordinator.label : 'JEV NOT REACHABLE', live);
+    if (!live) this.hud.alert('JEV NOT REACHABLE', ['check your Jev key on the title screen'], 'crit', 8000);
     this.mode = mode;
     const lo = this.sim.lo;
-    this.hud.setMode(mode === 'DEMO' ? 'CINEMATIC DEMO' : isAbstract(lo) ? 'FREE SIMULATION' : `${this.sim.opts.name?.toUpperCase() ?? 'FREE SIMULATION'} · ${lo.platform.id} · ${lo.agent.id.replace('_', ' ')}`);
+    this.hud.setMode(session
+      ? `RECORDED JEV SESSION · ${session.recordedAt.slice(0, 10)} · ${session.model}`
+      : mode === 'DEMO' ? 'LIVE JEV DEMO' : isAbstract(lo) ? 'LIVE JEV SIMULATION' : `${this.sim.opts.name?.toUpperCase() ?? 'SIMULATION'} · ${lo.platform.id} · ${lo.agent.id.replace('_', ' ')}`);
+    const cmd = document.getElementById('cmd-input') as HTMLInputElement;
+    cmd.disabled = Boolean(session);
+    cmd.placeholder = session ? 'Recorded session: orders are disabled (add your Jev key for a live run)' : 'e.g. "Search the northern forest" · "Keep five drones in reserve"';
+    this.callsPanel.readOnly = Boolean(session);
     $('title-screen').classList.add('hidden');
     this.setView('WORLD');
     this.rig.release();
   }
 
-  async startDemo(): Promise<void> {
-    await this.prepare(demoScenario(this.droneCount), 'DEMO');
+  /** Live demo with the visitor's Jev key, or a recorded real Jev session without one. */
+  async startDemo(recorded = !this.jevConfigured): Promise<void> {
+    let session: DemoSession | null = null;
+    if (recorded) {
+      try {
+        session = this.demoSession ??= (await (await fetch('/recordings/demo-session.json')).json()) as DemoSession;
+      } catch {
+        this.hud.alert('RECORDING UNAVAILABLE', ['could not load the recorded session'], 'crit');
+        return;
+      }
+      (document.getElementById('drone-count') as HTMLSelectElement).value = String(session.drones);
+    }
+    await this.prepare(demoScenario(session?.drones ?? this.droneCount), 'DEMO', session);
     this.sim.timeScale = 2;
     (document.getElementById('time-scale') as HTMLSelectElement).value = '2';
     this.scheduler = null;
@@ -285,9 +331,16 @@ export class App {
         this.sound.alert();
       },
     });
+    this.sim.paused = false;
   }
 
   async startFree(): Promise<void> {
+    if (!this.jevConfigured) {
+      $('ts-status').textContent = 'Free simulation runs on live Jev: add your Jev key below, or watch the recorded session.';
+      $('ts-status').classList.add('flash');
+      setTimeout(() => $('ts-status').classList.remove('flash'), 1200);
+      return;
+    }
     await this.prepare(setupScenario(this.droneCount, this.loadoutPanel.setup), 'FREE');
     this.director = null;
     this.callsPanel.scripted = false;
@@ -296,6 +349,7 @@ export class App {
     this.scheduler = new EventScheduler(new Rng(this.sim.opts.seed + 9), 6);
     this.sim.autoCalls = true; // random emergency calls arrive and are triaged
     this.sim.launchAll(this.sim.t + 2, 0.3);
+    this.sim.paused = false;
     this.rig.frame(BASE_POS.x + 60, BASE_POS.z - 60, 520, 2.5, -2.3);
   }
 
@@ -318,7 +372,7 @@ export class App {
         if (this.replay.playing && this.replay.t >= this.recorder.duration - 0.5) this.replay.t = 0;
         return this.replay.playing;
       },
-      restartDemo: () => this.startDemo(),
+      restartDemo: () => void this.startDemo(this.replaying || !this.jevConfigured),
       freeSim: () => this.startFree(),
       menu: () => location.reload(),
     }, this.sim.opts.hero);

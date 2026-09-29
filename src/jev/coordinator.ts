@@ -23,7 +23,10 @@ export interface CoordinatorEvents {
 export type CoordMode = 'JEV' | 'SIM';
 
 export class JevCoordinator {
-  readonly client = new JevClient();
+  /** Swappable: a live client, or a recording/replay client for recorded sessions. */
+  client: JevClient = new JevClient();
+  /** False in the app: no rule-based substitute for Jev is ever shown to visitors. */
+  allowFallback = true;
   mode: CoordMode = 'SIM';
   directive: Directive | null = null;
   corridors = new Map<string, CorridorState>();
@@ -91,12 +94,19 @@ export class JevCoordinator {
           this.apply(j, buildObjectives(view), view, reason);
         })
         .catch((e: unknown) => {
-          this.ev.log({ t: view.t, title: 'JEV UNAVAILABLE', lines: [String(e instanceof Error ? e.message : e).slice(0, 60), 'fallback coordinator engaged'], level: 'warn', by: 'CODE' });
+          const msg = String(e instanceof Error ? e.message : e).slice(0, 60);
+          if (!this.allowFallback) {
+            // Hold the current plan and retry on the next tick; never substitute rules for Jev.
+            this.ev.log({ t: view.t, title: 'JEV UNAVAILABLE', lines: [msg, 'holding current plan · retrying'], level: 'warn', by: 'CODE' });
+            this.pending = reason;
+            return;
+          }
+          this.ev.log({ t: view.t, title: 'JEV UNAVAILABLE', lines: [msg, 'fallback coordinator engaged'], level: 'warn', by: 'CODE' });
           if (!this.client.connected) this.mode = 'SIM';
           this.apply(fallbackJudge(objs, ctx), objs, view, reason);
         })
         .finally(() => (this.inflight = false));
-    } else {
+    } else if (this.allowFallback) {
       this.apply(fallbackJudge(objs, ctx), objs, view, reason);
     }
   }
@@ -225,6 +235,10 @@ export class JevCoordinator {
 
   async command(text: string, t: number): Promise<Directive> {
     let d: Directive;
+    if (!this.allowFallback && !(this.mode === 'JEV' && this.client.connected)) {
+      this.ev.log({ t, title: 'COMMAND NEEDS JEV', lines: [`“${text.slice(0, 48)}”`, 'add your Jev key to give orders'], level: 'warn', by: 'CODE' });
+      return { text, intent: 'UNKNOWN', area: 'NONE', count: 0, confidence: 0, source: 'SIM' };
+    }
     try {
       d = this.mode === 'JEV' && this.client.connected ? await parseWithJev(this.client, text) : parseFallback(text);
     } catch {

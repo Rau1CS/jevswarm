@@ -7,6 +7,7 @@ import { JevClient } from '../jev/judge';
 import { LANES, PRICE_PER_M_TOKENS, SHORT, TriageEngine, type Triaged } from '../triage/engine';
 import { FEEDS, shuffled, type FeedMessage } from '../triage/feed';
 import { esc, money } from './loadoutPanel';
+import { replayAsk, type TriageSession } from '../triage/session';
 
 const SUGGEST = [
   'Does this message say a road, highway or bridge is closed or blocked?',
@@ -20,7 +21,7 @@ const CAT_SHORT = (c?: string) => (c ? c.replace(/_/g, ' ').replace('and utility
 export class TriageConsole {
   private root = document.getElementById('triage')!;
   private client = new JevClient();
-  private engine = new TriageEngine((state, questions) => this.client.ask(state, questions) as never);
+  private engine: TriageEngine = new TriageEngine((state, questions) => this.client.ask(state, questions) as never);
   private feed: FeedMessage[] = [];
   private cursor = 0;
   private timer = 0;
@@ -37,17 +38,65 @@ export class TriageConsole {
     this.engine.onChange = () => this.markDirty();
   }
 
+  /** Without a key the console plays a recorded real Jev session instead of running live. */
+  private recorded: TriageSession | null = null;
+  private replayTimers: number[] = [];
+  private get replayMode(): boolean {
+    return !this.client.configured;
+  }
+
   async open(): Promise<void> {
     this.root.classList.remove('hidden');
+    this.feedId = FEEDS[0].id;
     this.shell();
     await this.client.init();
-    if (!this.client.configured) this.notice('No Jev key: add your own TypeSafe key on the title screen (or set TYPESAFE_API_KEY in .env.local when running locally). The console needs Jev to triage.');
     await this.loadFeed();
+    this.root.querySelectorAll<HTMLElement>('[data-k="feed"], [data-k="rate"], [data-k="budget"], .tc-add input, .tc-add button, .tc-sugg button')
+      .forEach((el) => ((el as HTMLInputElement).disabled = this.replayMode));
+    this.markDirty();
   }
 
   close(): void {
     this.pause();
     this.root.classList.add('hidden');
+  }
+
+  private replayNotice(): string {
+    const s = this.recorded;
+    return `Recorded real Jev session${s ? ` (${s.recordedAt.slice(0, 10)}, ${s.model})` : ''}: the same messages, questions and Jev answers, replayed with their original timing. Add your Jev key on the title screen to run it live and ask your own questions.`;
+  }
+
+  /** Replay a recorded session: messages and commander questions at their recorded times. */
+  private async playRecording(): Promise<void> {
+    try {
+      this.recorded ??= (await (await fetch('/recordings/triage-session.json')).json()) as TriageSession;
+    } catch {
+      this.notice('Could not load the recorded session.');
+      return;
+    }
+    const s = this.recorded;
+    const byId = new Map(this.feed.map((m) => [m.id, m]));
+    const idOfText = new Map(this.feed.map((m) => [m.text, m.id]));
+    this.engine = new TriageEngine(replayAsk(s, (t) => idOfText.get(t)));
+    this.engine.budgetUsd = 1;
+    this.engine.onChange = () => this.markDirty();
+    this.running = true;
+    this.notice(this.replayNotice());
+    for (const ev of s.events) {
+      this.replayTimers.push(window.setTimeout(() => {
+        if (ev.type === 'question') {
+          const q = this.engine.addQuestion(ev.text);
+          this.engine.backfill(q.id);
+          this.sortBy = q.id;
+        } else {
+          const m = byId.get(ev.id);
+          if (m) { this.engine.ingest(m); this.cursor++; }
+        }
+      }, ev.atMs));
+    }
+    const end = (s.events[s.events.length - 1]?.atMs ?? 0) + 4000;
+    this.replayTimers.push(window.setTimeout(() => { this.running = false; this.markDirty(); }, end));
+    this.markDirty();
   }
 
   private notice(t: string): void {
@@ -63,7 +112,7 @@ export class TriageConsole {
     try {
       this.feed = shuffled(await src.load());
       this.cursor = 0;
-      this.notice(this.client.configured ? '' : 'No Jev key: add your own TypeSafe key on the title screen.');
+      this.notice(this.client.configured ? '' : this.replayNotice());
     } catch {
       this.notice(`Could not load ${src.name}. Check the network connection.`);
     }
@@ -72,7 +121,12 @@ export class TriageConsole {
   }
 
   private start(): void {
-    if (!this.client.configured || this.loading) return;
+    if (this.loading) return;
+    if (this.replayMode) {
+      this.cursor = 0;
+      void this.playRecording();
+      return;
+    }
     this.running = true;
     clearInterval(this.timer);
     this.timer = window.setInterval(() => this.tick(), 1000 / this.rate);
@@ -82,6 +136,8 @@ export class TriageConsole {
   private pause(): void {
     this.running = false;
     clearInterval(this.timer);
+    this.replayTimers.forEach((t) => clearTimeout(t));
+    this.replayTimers = [];
     this.markDirty();
   }
 
@@ -178,7 +234,7 @@ export class TriageConsole {
   private render(): void {
     const e = this.engine, r = this.root;
     const q = (s: string) => r.querySelector(s) as HTMLElement;
-    q('[data-a="run"]').textContent = this.running ? 'PAUSE' : this.cursor ? 'RESUME' : 'START STREAM';
+    q('[data-a="run"]').textContent = this.replayMode ? (this.running ? 'STOP' : 'PLAY RECORDED SESSION') : this.running ? 'PAUSE' : this.cursor ? 'RESUME' : 'START STREAM';
     q('.thr').textContent = this.threshold.toFixed(2);
     q('.sortq').textContent = SHORT[this.sortBy] ?? e.questions.find((x) => x.id === this.sortBy)?.text.slice(0, 40) ?? '';
     const done = e.items.filter((it) => it.status === 'DONE');
@@ -220,7 +276,7 @@ export class TriageConsole {
 
     // Feed.
     const shown = e.items.filter((it) => !this.laneFilter || e.laneOf(it, this.threshold) === this.laneFilter).slice(0, 40);
-    q('.tc-feed').innerHTML = shown.map((it) => this.card(it)).join('') || '<div class="tc-empty">Press START STREAM to replay the incident’s messages through Jev.</div>';
+    q('.tc-feed').innerHTML = shown.map((it) => this.card(it)).join('') || `<div class="tc-empty">${this.replayMode ? 'Press PLAY RECORDED SESSION to watch a real Jev triage session.' : 'Press START STREAM to replay the incident’s messages through Jev.'}</div>`;
   }
 
   private card(it: Triaged): string {

@@ -111,12 +111,21 @@ wind shift, drop, drone lost, commander directive…). At most one request is in
 sets are Choices — `intent` (8 options), `area` (8 options), `count` — plus a Noul
 `count_stated`. Low confidence or `UNKNOWN` is reported as "not understood" instead of acted on.
 
-## Fallback
+## No fallback in the app; recorded sessions instead
 
-If no key is configured or a call fails, `fallbackJudge()` produces the same `Judgment` shape
-from transparent rules (urgency bands by predicted fire arrival and objective kind) and
-`parseFallback()` handles commands with keywords. The UI shows **SIMULATION COORDINATOR**,
-and the results screen reports "coordinator decisions" rather than "Jev decisions".
+The app never shows a rule-based stand-in for Jev (`allowFallback = false` on the coordinator
+and the call centre):
+
+- **Without a key:** visitors watch recorded real Jev sessions (`src/jev/session.ts`,
+  `src/triage/session.ts`). See the README.
+- **If Jev becomes unreachable mid-run:** the coordinator holds the current plan and retries.
+- **Calls with no Jev answer:** they go to a human operator.
+- **Commander orders:** they need Jev.
+
+`fallbackJudge()` / `parseFallback()` / `fallbackTriage()` remain for:
+
+- the headless tests
+- the suppression physics lab, which compares logistics without spending tokens
 
 ## Proxy
 

@@ -61,7 +61,7 @@ export interface Triaged {
 
 export interface EngineStats { done: number; errors: number; tokens: number; msSum: number; ms: number[] }
 
-type Ask = (state: unknown, questions: Record<string, unknown>) => Promise<{ answers: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens: number } }>;
+export type Ask = (state: unknown, questions: Record<string, unknown>) => Promise<{ answers: Record<string, { choice?: string; confidence?: number; probabilities?: Record<string, number>; noul?: number }>; usage?: { input_tokens: number } }>;
 
 export class TriageEngine {
   questions: Question[] = DEFAULT_QUESTIONS.map((q) => ({ ...q }));
@@ -76,6 +76,11 @@ export class TriageEngine {
   private customN = 0;
 
   constructor(private ask: Ask) {}
+
+  /** Swap the answer source (live Jev, or a recorded session). */
+  setAsk(ask: Ask): void {
+    this.ask = ask;
+  }
 
   get spentUsd(): number {
     return (this.stats.tokens * PRICE_PER_M_TOKENS) / 1e6;

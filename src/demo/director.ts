@@ -6,7 +6,10 @@
  */
 import * as THREE from 'three';
 import { BASE_POS } from '../config';
-import { dist2 } from '../core/math';
+import { Rng, dist2 } from '../core/math';
+
+/** The demo timeline is authored in seconds at 2× simulation speed. */
+const DEMO_SCALE = 2;
 import { heightAt } from '../world/layout';
 import type { CameraRig } from '../render/cameraRig';
 import type { Simulation } from '../sim/simulation';
@@ -36,8 +39,15 @@ export class Director {
   private heroCall: string | null = null;
   finished = false;
 
+  private t0: number;
+  private rng: Rng;
+
   constructor(private h: DirectorHost) {
     const sim = h.sim;
+    // Cues run on simulation steps (not frames) so a recorded session replays identically.
+    this.t0 = sim.t;
+    this.rng = new Rng(sim.opts.seed + 17);
+    sim.beforeStep = () => this.onStep();
     sim.coordinator.calloutsEnabled = false;
     const hero = () => sim.civilians.find((c) => c.hero)!;
     const heroDetObj = () => sim.sensors.detections.find((d) => d.id === this.heroDet);
@@ -96,7 +106,7 @@ export class Director {
           sim.calls.approve(rec.call.id, rec.status === 'REVIEW' ? 'FULL_RESCUE' : undefined, rec.triage?.placeId ? undefined : 'WEST_LANE_END');
         }
         const det = sim.sensors.detections.find((d) => d.truthCivId === hero().id && d.status === 'POSSIBLE');
-        if (det) det.holdUntil = sim.t + (113 - this.t) * sim.timeScale;
+        if (det) det.holdUntil = sim.t + (113 - this.t) * DEMO_SCALE;
         h.caption('COMMANDER APPROVES · RESCUE PACKAGE DISPATCHED');
       } },
       { at: 48, run: () => {
@@ -109,7 +119,7 @@ export class Director {
         }
         det.conf = Math.max(det.conf, 0.64);
         // Curated: heavy smoke keeps verification inconclusive until ~1:53.
-        det.holdUntil = sim.t + (113 - this.t) * sim.timeScale;
+        det.holdUntil = sim.t + (113 - this.t) * DEMO_SCALE;
         this.heroDet = det.id;
         sim.coordinator.featured = `CIV_${det.id}`;
         h.callout(det.by === 'CALL' ? 'CALL LOCATION · THERMAL CHECK' : 'THERMAL SIGNATURE', det.by === 'CALL'
@@ -128,7 +138,7 @@ export class Director {
           .sort((a, b) => dist2(a.x, a.z, 60, -60) - dist2(b.x, b.z, 60, -60)).slice(0, 3);
         for (const c of others) {
           const s = sim.drones.find((d) => d.role === 'SCOUT' && d.airborne);
-          sim.sensors.create(c.x + 4, c.z + 3, 0.5 + Math.random() * 0.15, c.id, s?.id ?? 'D03', sim.t, sim.sensorEvents);
+          sim.sensors.create(c.x + 4, c.z + 3, 0.5 + this.rng.next() * 0.15, c.id, s?.id ?? 'D03', sim.t, sim.sensorEvents);
         }
         h.caption('MULTIPLE THERMAL DETECTIONS');
         if (!this.userCamera) h.rig.frame(40, -80, 820, 3.5, -2.0);
@@ -233,8 +243,11 @@ export class Director {
     if (lines.length) this.h.callout('JEV PRIORITY CHANGE', ['CIVILIAN RISK: CRITICAL', ...lines]);
   }
 
-  update(dt: number): void {
-    this.t += dt;
+  /** Kept for callers that tick per frame; cues are driven by simulation steps. */
+  update(_dt: number): void {}
+
+  private onStep(): void {
+    this.t = (this.h.sim.t - this.t0) / DEMO_SCALE;
     for (const c of this.cues) {
       if (!c.done && this.t >= c.at) {
         c.done = true;

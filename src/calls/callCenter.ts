@@ -64,6 +64,8 @@ export class CallCenter {
   /** Commander-approval pings waiting for a human decision. */
   onChange: () => void = () => {};
   private nInc = 0;
+  /** False in the app: without Jev a call goes to a human operator, never to keyword rules. */
+  allowFallback = true;
 
   constructor(private host: CallHost) {}
 
@@ -90,9 +92,14 @@ export class CallCenter {
     const client = this.host.client();
     this.host.log('EMERGENCY CALL', [`${call.id} · ${call.caller}`, `“${call.transcript.slice(0, 70)}…”`], 'warn', 'CODE');
     const done = (tr: CallTriage) => { rec.triage = tr; this.decide(rec); this.onChange(); };
-    if (client?.connected) {
-      jevTriage(client, call.transcript, incidents).then(done).catch(() => done(fallbackTriage(call.transcript, incidents)));
-    } else done(fallbackTriage(call.transcript, incidents));
+    const noJev = () => {
+      if (this.allowFallback) return done(fallbackTriage(call.transcript, incidents));
+      rec.status = 'REVIEW';
+      rec.reason = 'Jev unavailable · operator must triage';
+      this.onChange();
+    };
+    if (client?.connected) jevTriage(client, call.transcript, incidents).then(done).catch(noJev);
+    else noJev();
     this.onChange();
     return rec;
   }

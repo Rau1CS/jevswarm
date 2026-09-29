@@ -64,7 +64,7 @@ export class LoadoutPanel {
       </div>
       ${warn.map((w) => `<div class="lo-warn">${esc(w)}</div>`).join('')}
       ${concept ? '<div class="lo-warn">Legacy abstraction: effect is not derived from delivered litres. The cinematic demo always uses it.</div>' : ''}
-      <div class="lo-actions"><button type="button" data-a="lab">SUPPRESSION LAB</button><button type="button" data-a="cat" class="ghost">CATALOGUE &amp; SOURCES</button></div>`;
+      <div class="lo-actions"><button type="button" data-a="cat" class="ghost">CATALOGUE &amp; SOURCES</button></div>`;
     this.root.querySelectorAll<HTMLSelectElement>('select[data-f]').forEach((el) => el.addEventListener('change', () => {
       if (el.dataset.f === 'platform') this.setup.platform = el.value as SuppressionSetup['platform'];
       else this.setup.agent = el.value as SuppressionSetup['agent'];
@@ -75,7 +75,6 @@ export class LoadoutPanel {
       else this.setup.forward = b.dataset.v === '1';
       this.changed();
     }));
-    this.root.querySelector('[data-a="lab"]')!.addEventListener('click', () => this.onLab());
     this.root.querySelector('[data-a="cat"]')!.addEventListener('click', () => this.onCatalogue());
   }
 

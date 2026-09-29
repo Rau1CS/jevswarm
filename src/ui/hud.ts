@@ -176,7 +176,7 @@ export class Hud {
     pe.classList.toggle('crit', u >= 3.4);
     const j = co.judgment;
     $('st-coord').textContent = j
-      ? `${j.source === 'JEV' ? `${j.model ?? 'jev'} · ${Math.round(j.latencyMs)} ms` : 'deterministic fallback'} · ${co.replans} replans · ${co.decisions} decisions${co.directive ? ` · directive: ${co.directive.intent.replace(/_/g, ' ').toLowerCase()}` : ''}`
+      ? `${j.source === 'JEV' ? `${j.model ?? 'jev'} · ${Math.round(j.latencyMs)} ms` : 'Jev unavailable'} · ${co.replans} replans · ${co.decisions} decisions${co.directive ? ` · directive: ${co.directive.intent.replace(/_/g, ' ').toLowerCase()}` : ''}`
       : '—';
     $('st-status').textContent = co.enabled ? 'ACTIVE' : 'STANDBY';
     this.updateCard(selected);
