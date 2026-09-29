@@ -107,7 +107,7 @@ export class TriageConsole {
   private shell(): void {
     this.root.innerHTML = `
       <div class="tc-top">
-        <div class="tc-title">MESSAGE TRIAGE <span>// JEV</span><small>real wildfire messages · human labels shown for comparison</small></div>
+        <div class="tc-title">MESSAGE TRIAGE <span>// JEV</span><small>real wildfire messages · human labels shown for comparison · powered by <a href="https://typesafe.ai" target="_blank" rel="noopener">TypeSafe Jev</a></small></div>
         <div class="tc-ctl">
           <select data-k="feed">${FEEDS.map((f) => `<option value="${f.id}">${esc(f.name)} · ${esc(f.dataset)}</option>`).join('')}</select>
           <select data-k="rate"><option value="0.5">0.5 msg/s</option><option value="1" selected>1 msg/s</option><option value="2">2 msg/s</option><option value="5">5 msg/s</option></select>

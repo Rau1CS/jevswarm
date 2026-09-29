@@ -444,3 +444,5 @@ button, input, select { font: inherit; color: inherit; }
 .ts-key button { border: 1px solid var(--line-strong); background: rgba(10, 14, 18, 0.7); padding: 8px 14px; font-weight: 600; letter-spacing: 0.14em; font-size: 11px; cursor: pointer; }
 .ts-key button.ghost { color: var(--muted); }
 .ts-key-note { flex-basis: 100%; font-size: 11px; color: var(--dim); line-height: 1.45; }
+.ts-key-note a, .ts-powered a, .tc-title small a { color: var(--jev); }
+.ts-powered { position: absolute; left: 7vw; bottom: 18px; font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.06em; }
